@@ -180,15 +180,11 @@ Opcodes: 0-11, 0x0-0xb
 Memory: (format 2)
 1. Load
 2. Store
-3. Loadi
-4. Storei
-5. Loadd
-6. Stored
-7. Load signed imm16 into upper halfword (31:16)
+3. Load signed imm16 into upper halfword (31:16)
 
 > [!Note] The memory address is always operand 2, meaning an immediate or the S register for format 0. The source/destination register is the D register.
 
-Opcodes: 16-22, 0x10-0x16
+Opcodes: 16-18, 0x10-0x12
 
 PPU: (format TBD)
 Opcodes: 24-27, 0x18-0x1b
@@ -300,6 +296,8 @@ Load data into RAM and VRAM (sprites) the same way Horizon loaded its entire pro
     - [x] linking
   - [x] load/store
     - [x] post inc/dec
+    - [ ] pre inc/dec
+    - [ ] ISA revision
   - control
     - [x] set flags
     - [x] break

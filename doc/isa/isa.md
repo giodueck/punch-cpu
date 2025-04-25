@@ -78,4 +78,131 @@ Operand positioning is designed to make instructions usable in more than one for
 
 ## Instructions
 
+### Condition codes
+All instructions can be executed conditionally, making use of one of several combinations of flags. To execute an instruction conditionally, append the corresponding postfix. These are:
+
+Postfix | Code | Description                     | Flags
+------- | ---- | ------------------------------- | -----
+        | 0000 | Always                          | none
+     eq | 0001 | Equal or equal to zero          | (Z)
+     ne | 0010 | Not equal or not zero           | (!Z)
+     ng | 0011 | Negative                        | (N)
+     pz | 0100 | Positive or zero                | (!N)
+     lt | 0101 | (signed) Less than              | (N != V)
+     le | 0110 | (signed) Less than or equal     | (Z or N != V)
+     gt | 0111 | (signed) Greater than           | (!Z and N = V)
+     ge | 1000 | (signed) Greater than or equal  | (N = V)
+     vs | 1001 | Overflow set                    | (V)
+     vc | 1010 | Overflow clear                  | (!V)
+     es | 1011 | Error set                       | (E)
+     ec | 1100 | Error clear                     | (E)
+
+All other codes are reserved, except for 15 (1111), which should result in false and may stand for Never.
+
+For instructions that update the flags, they update all flags even if they may not be able to set every flag. The meaning of the flags is as follows:
+- Z: the result is zero
+- N: the result is negative
+- V: the operation resulted in signed overflow, only set by addition and subtraction instructions
+- E: some error occurred, for example a division by 0
+
+### Arithmetic and logic instructions
+
+#### First class instructions
+There are 12 first class instructions in this category. They are implemented using the arithmetic combinator, which has these same functions.
+
+Mnemonic | Opcode     | Description
+-------- | ---------- | -----------
+     add | 00000 (0)  | Add two operands
+     sub | 00001 (1)  | Subtract the second operand from the first
+     sbn | 00010 (2)  | Subtract the first operand from the second
+     mul | 00011 (3)  | Multiply two operands
+     div | 00100 (4)  | Divide the first operand by the second, results in the integer quotient
+     mod | 00101 (5)  | Divide the first operand by the second, results in the modulo
+     exp | 00110 (6)  | Raise the first operand to the second
+     shl | 00111 (7)  | Shift the first operand left by the second. It the shift amount is 32 or more, rotate instead
+     shr | 01000 (8)  | Shift the first operand right, extending the sign, by the second. It the shift amount is 32 or more, rotate instead
+     and | 01001 (9)  | Logical AND between two operands
+     orr | 01010 (10) | Logical OR between two operands
+     xor | 01011 (11) | Logical XOR between two operands
+
+All instructions take two operands, but may be encoded as R-type, I-type or A-type (it may be useful to use just the second operand). All instructions store the result in the destination register.
+
+> **Note** The use of L-type instructions with these opcodes is reserved for future extensions.
+
+All instructions in this section can update the flags. To do this, append `s` to the instruction before the optional condition code.
+
+All instructions may set the Z and N flags. Only add, sub and sbn may set the V flag. Only div and mod may set the E flag.
+
+##### Examples
+
+`adds x3 x1 x2    ; Add registers x1 and x2, store the result in x3 and update the flags`
+`andne x1 x1 0xff ; AND register x1 and immediate 0xff if the Z flag is not set, store the result in x1`
+`and x1 0xff      ; Providing only two operands is allowed and assumes the first operand is also the destination`
+
+#### Second class instructions
+There are many instructions in other architectures that can be easily represented with the first class instructions already, but which make code easier to reason about. Here are some instructions and their translations.
+
+Mnemonic | Operands  | Translation         | Description
+-------- | --------- | ------------------- | -----------
+  mov<s> | xd xs/imm | add<s> xd x0 xs/imm | Copy a register or immediate into a register.
+     cmp | xr xs/imm | subs x0 xr xs/imm   | Compare two values and update flags without storing a result
+     nop |           | add x0 x0 x0        | Do nothing. This instruction encodes as 0, so an invalid fetch or unset program memory do nothing.
+  not<s> | xd xr     | xor<s> xd xr -1     | Logical NOT to first operand.
+     ret |           | add pc x0 lr        | Return from a subroutine branched to with branch and link.
+
+### Load and store instructions
+
+#### First class instructions
+There are 3 first class instructions in this category.
+
+Mnemonic | Opcode | Operands  | Description
+-------- | ------ | --------- | -----------
+  ldr<s> |  10000 | xd rs/imm | Load a word from memory at address pointed to by the second operand.
+     str |  10001 | xd rs/imm | Store a word from the source register (xd) to memory at address pointed to by the second operand.
+  ldh<s> |  10010 | xd imm    | Load a 16-bit immediate into the upper 16 bits of the destination, clearing the lower bits. Can be used to construct 32-bit immediates with 2 instructions.
+
+> **Note** The first operand stays unused in all of these instructions. Encodings with the first operand different from 0 are reserved for future extensions.
+
+##### Address register modification
+When using an R-type ldr or str instruction, a pre/post-increment/decrement is supported. It is encoded in the `e` bitfield and is interpreted as follows:
+
+`vvvv vvvu`
+
+Which represents:
+- v: a 7-bit two's complement value, i.e. a number in the range of -64 to 63.
+- u: pre/post bit:
+  - 0: post: add value after memory access
+  - 1: pre: add value before memory access
+
+These instructions are accessed by appending the corresponding postfix, before the `s` postfix in the case of the load instruction, and before the conditional postfix:
+- ib: For pre-increment
+- ia: For post-increment
+- db: For pre-decrement
+- da: For post-decrement
+
+Normally the value to be added is 0, when adding either `ib` or `ia`, it is 1, and when adding either `db` or `da` it is -1. This value may also be specified as an immediate third operand when it should be different.
+
+#### Second class instructions
+Stack instructions are translated to load and store instructions with an address writeback.
+
+Mnemonic | Operands  | Translation         | Description
+-------- | --------- | ------------------- | -----------
+    push | xd        | strdb xd sp         | Push the register xd to the top of the stack, updating the stack pointer.
+  pop<s> | xd        | ldria<s> xd sp      | Pop the top of the stack to the register xd, updating the stack pointer.
+
+> **Note** These operations are designed for a full-descending stack, i.e. the bottom of the stack is the highest memory address.
+
+### Branch instruction
+There is one branch instruction, which works by adding an offset to PC in the execution phase. Thus, it immediately fetches the next desired instruction in the next cycle, which causes one less cycle of latency from flushing the pipeline than when using an instruction which makes use of the writeback stage. The branch instruction is also the only way to update LR and branch in the same instruction.
+
+Mnemonic | Opcode | Operands | Description
+-------- | ------ | -------- | -----------
+    b<l> |  11100 | rs/imm   | Adds operand 2 as an offset to PC. If `l` is appended, also stores the address of the following instruction in LR.
+
+Although using a register as the destination address, it may be impractical because it is only an offset, which is calculated by an assembler if it is an immediate. In these cases, an ALU instruction may be better suited, like when branching to LR.
+
+> **Note** The PC is is ahead of the current instruction by 3 at any point in time due to it pointing to the instruction currently in the fetch stage.
+
+### Special control instructions
+
 ## Memory

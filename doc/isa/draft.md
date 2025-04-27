@@ -231,7 +231,6 @@ Additionally keep address space small to keep addresses small, within 16-bits or
 
 - Program ROM (separate space): 4K
 - Data ROM: 4K (TODO)
-- Unused ROM: 8K
 - RAM: 8K
 - GPIO: 1K
 - VRAM: size of framebuffer, probably read-only for load/store and writable through PPU
@@ -296,8 +295,8 @@ Load data into RAM and VRAM (sprites) the same way Horizon loaded its entire pro
     - [x] linking
   - [x] load/store
     - [x] post inc/dec
-    - [ ] pre inc/dec
-    - [ ] ISA revision
+    - [x] pre inc/dec
+    - [x] ISA revision
   - control
     - [x] set flags
     - [x] break

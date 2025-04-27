@@ -204,5 +204,33 @@ Although using a register as the destination address, it may be impractical beca
 > **Note** The PC is is ahead of the current instruction by 3 at any point in time due to it pointing to the instruction currently in the fetch stage.
 
 ### Special control instructions
+There are 2 control instructions, meant to provide ways to manipulate otherwise hidden aspects of the CPU.
+
+Mnemonic | Opcode | Operands | Description
+-------- | ------ | -------- | -----------
+    setf |  11101 | rs/imm   | Sets flags to the lower 4 bits of operand 2, corresponding from MSB to LSB to Z, N, V and E respectively. E.g. 0xc = 0b1100, which sets the Z and N flags and unsets the V and E flags.
+     brk |  11110 |          | Stop clock and resume only manually.
+    wait |  11110 | t1/t2    | Same instruction as brk, but clock restarts when the given timer reaches 0.
 
 ## Memory
+The memory map is split into several different areas mapped onto different components. Notably, the lowest addresses are dedicated program ROM and as such are only executable and not readable, unlike other areas which are not executable.
+
+Memory is addressed by 32-bit word, which simplifies the memory interface signifficantly. Byte addressing can be simulated with additional instructions.
+
+The addressable range is, of course, much larger than the 20K words, or 80KB used. The main drivers of a small memory space are the KISS principle and trying to fit everything into 15 bits or less, so A-type instructions can address the entire memory map without going into negative values.
+
+```
+0x4FFF  |-------------|
+0x4C00  | Unused      | 1K words
+0x4BFF  |-------------|
+0x4400  | VRAM        | 2K words
+0x43FF  |-------------|
+0x4000  | GPIO        | 1K words
+0x3FFF  |-------------|
+0x2000  | RAM         | 8K words
+0x1FFF  |-------------|
+0x1000  | Data ROM    | 4K words
+0x0FFF  |-------------|
+0x0000  | Program ROM | 4K words
+        |-------------|
+```

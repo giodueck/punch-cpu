@@ -133,11 +133,10 @@ All instructions in this section can update the flags. To do this, append `s` to
 
 All instructions may set the Z and N flags. Only add, sub and sbn may set the V flag. Only div and mod may set the E flag.
 
-##### Examples
+##### Using PC
+Note that the PC will always be 3 instructions ahead of the current one due to it pointing to the instruction currently in the fetch stage.
 
-`adds x3 x1 x2    ; Add registers x1 and x2, store the result in x3 and update the flags`
-`andne x1 x1 0xff ; AND register x1 and immediate 0xff if the Z flag is not set, store the result in x1`
-`and x1 0xff      ; Providing only two operands is allowed and assumes the first operand is also the destination`
+When using PC as a destination register, the pipeline will be flushed and the instruction pointed to by the new PC will be loaded. This makes ALU operations behave as a kind of branch instruction.
 
 #### Second class instructions
 There are many instructions in other architectures that can be easily represented with the first class instructions already, but which make code easier to reason about. Here are some instructions and their translations.
@@ -182,6 +181,9 @@ These instructions are accessed by appending the corresponding postfix, before t
 
 Normally the value to be added is 0, when adding either `ib` or `ia`, it is 1, and when adding either `db` or `da` it is -1. This value may also be specified as an immediate third operand when it should be different.
 
+##### Using PC
+When using PC as a destination register, the pipeline will be flushed and the instruction pointed to by the new PC will be loaded. This makes load instructions behave as a kind of branch instruction.
+
 #### Second class instructions
 Stack instructions are translated to load and store instructions with an address writeback.
 
@@ -193,15 +195,17 @@ Mnemonic | Operands  | Translation         | Description
 > **Note** These operations are designed for a full-descending stack, i.e. the bottom of the stack is the highest memory address.
 
 ### Branch instruction
-There is one branch instruction, which works by adding an offset to PC in the execution phase. Thus, it immediately fetches the next desired instruction in the next cycle, which causes one less cycle of latency from flushing the pipeline than when using an instruction which makes use of the writeback stage. The branch instruction is also the only way to update LR and branch in the same instruction.
+There is one explicit branch instruction, which works by adding an offset to PC in the execution phase.
+
+The branch instruction immediately fetches the next desired instruction in the next cycle, which causes one less cycle of latency from flushing the pipeline than when using an instruction which makes use of the writeback stage. The branch instruction is also the only way to update LR and branch in the same instruction.
 
 Mnemonic | Opcode | Operands | Description
 -------- | ------ | -------- | -----------
 `b<l>`   |  11100 | `rs/imm` | Adds operand 2 as an offset to PC. If `l` is appended, also stores the address of the following instruction in LR.
 
-Although using a register as the destination address, it may be impractical because it is only an offset, which is calculated by an assembler if it is an immediate. In these cases, an ALU instruction may be better suited, like when branching to LR.
+Although using a register as the destination address is possible, it may be impractical because it is only an offset, which is calculated by an assembler if it is an immediate. In these cases, an ALU instruction may be better suited, like when branching to LR.
 
-> **Note** The PC is is ahead of the current instruction by 3 at any point in time due to it pointing to the instruction currently in the fetch stage.
+> **Note** The PC is is ahead of the current instruction by 3 at any point in time due to it pointing to the instruction currently in the fetch stage. The offset should account for this.
 
 ### Special control instructions
 There are 2 control instructions, meant to provide ways to manipulate otherwise hidden aspects of the CPU.

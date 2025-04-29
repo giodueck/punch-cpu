@@ -69,19 +69,59 @@ pub fn main() !u8 {
                     return 1;
                 }
                 std.debug.print("{c}: {s}\n", .{ arg.param.id, arg.value.? });
-                source_filename = arg.value.?;
+                source_filename = arg.value;
             },
             else => unreachable,
         }
     }
 
-    const regex: mvzr.Regex = mvzr.compile("^[ab]c").?;
-    const isMatch: bool = regex.isMatch(source_filename.?);
-    const match: ?mvzr.Match = regex.match(source_filename.?);
+    if (source_filename == null) {
+        try stderr.writeAll("Missing source file\n");
+        try stderr.writeAll(usageStr);
+        return 1;
+    }
 
-    try stderr.print("{s} {s}\n", .{source_filename.?, if (isMatch) "matches" else "does not match" });
-    if (isMatch)
-        try stderr.print("{s}\n", .{match.?.slice});
+    const file = try std.fs.cwd().openFile(source_filename.?, .{});
+    defer file.close();
+    const raw_program = try file.readToEndAlloc(alloc, 0x40000);
+    defer alloc.free(raw_program);
+
+    const word: mvzr.Regex = mvzr.compile("^\\w+").?;
+    const whitespace: mvzr.Regex = mvzr.compile("^[ \\t]+").?;
+    const nl: mvzr.Regex = mvzr.compile("^\n+").?;
+
+    // TODO
+    // Create array of regexes and identifiers similarly to flex
+    // when parsing:
+    //  - strip whitespace
+    //  - try to match sequentially all of the regexes, until a match is found
+    //  - save array of matches, which could be custom structures with special fields to identify the token
+
+    var cursor: usize = 0;
+    while (true) {
+        var whitespace_match = whitespace.match(raw_program[cursor..]);
+        if (whitespace_match) |m| {
+            cursor += (m.end - m.start);
+        }
+        const newline_match = nl.match(raw_program[cursor..]);
+        if (newline_match) |m| {
+            cursor += (m.end - m.start);
+        }
+        whitespace_match = whitespace.match(raw_program[cursor..]);
+        if (whitespace_match) |m| {
+            cursor += (m.end - m.start);
+        }
+
+        const match: ?mvzr.Match = word.match(raw_program[cursor..]);
+
+        if (match) |m| {
+            try stderr.print("{s}\n", .{m.slice});
+            cursor += m.slice.len;
+        } else {
+            try stderr.print("Unmatched token: {s}\n", .{raw_program[cursor..]});
+            break;
+        }
+    }
 
     return 0;
 }

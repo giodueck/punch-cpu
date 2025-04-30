@@ -81,7 +81,10 @@ pub fn main() !u8 {
         return 1;
     }
 
-    const file = try std.fs.cwd().openFile(source_filename.?, .{});
+    const file = std.fs.cwd().openFile(source_filename.?, .{}) catch |e| {
+        try stderr.print("Could not open file '{s}': {s}\n", .{ source_filename.?, @errorName(e) });
+        return 1;
+    };
     defer file.close();
     const raw_program = try file.readToEndAlloc(alloc, 0x40000);
     defer alloc.free(raw_program);
@@ -89,6 +92,7 @@ pub fn main() !u8 {
     const word: mvzr.Regex = mvzr.compile("^\\w+").?;
     const whitespace: mvzr.Regex = mvzr.compile("^[ \\t]+").?;
     const nl: mvzr.Regex = mvzr.compile("^\n+").?;
+    const line: mvzr.Regex = mvzr.compile("^[^\n]*").?;
 
     // TODO
     // Create array of regexes and identifiers similarly to flex
@@ -98,7 +102,7 @@ pub fn main() !u8 {
     //  - save array of matches, which could be custom structures with special fields to identify the token
 
     var cursor: usize = 0;
-    while (true) {
+    while (raw_program[cursor..].len != 0) {
         var whitespace_match = whitespace.match(raw_program[cursor..]);
         if (whitespace_match) |m| {
             cursor += (m.end - m.start);
@@ -112,14 +116,18 @@ pub fn main() !u8 {
             cursor += (m.end - m.start);
         }
 
+        if (raw_program[cursor..].len == 0)
+            break;
+
         const match: ?mvzr.Match = word.match(raw_program[cursor..]);
 
         if (match) |m| {
             try stderr.print("{s}\n", .{m.slice});
             cursor += m.slice.len;
         } else {
-            try stderr.print("Unmatched token: {s}\n", .{raw_program[cursor..]});
-            break;
+            const rest_of_line = line.match(raw_program[cursor..]);
+            try stderr.print("Error: Unmatched tokens: {s}\n", .{rest_of_line.?.slice});
+            cursor += rest_of_line.?.slice.len;
         }
     }
 

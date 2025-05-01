@@ -1,0 +1,14 @@
+[build]
+command=zig build
+cwd=<root>
+output=quickfix
+
+[build-test]
+command=zig build test
+cwd=<root>
+output=quickfix
+
+[build-run]
+command=zig build run
+cwd=<root>
+output=quickfix

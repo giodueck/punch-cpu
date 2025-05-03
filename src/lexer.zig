@@ -27,28 +27,61 @@ const TokenType = enum {
     syntax_error,
 };
 
-const Directive = enum {
+pub const Directive = enum(u8) {
     constant,
     variable,
     array,
     macro_start,
     macro_end,
+    len,
 };
 
-const Operator = enum {
-    assign,
+const Directives = [_][]const u8{
+    "const",
+    "var",
+    "array",
+    "macro",
+    "endm",
+};
+
+pub const Operator = enum {
     label,
+    immediate,
+    macro_argument,
 };
 
 /// Instruction divided into its various possible components
-const Instruction = struct {
-    operation: []const u8,
+pub const Instruction = struct {
+    operation: InstructionEnum,
     /// For ldr/str: ib, ia, db, da
-    suffix: []const u8,
+    suffix: ?InstructionSuffix,
     /// s or l
-    flag: u8,
+    flag: bool,
     /// Optional two letter condition code
-    condition: []const u8,
+    condition: ConditionCode,
+};
+
+pub const InstructionEnum = enum(u8) {
+    i_setf,
+    i_wait,
+    i_nop,
+    i_add,
+    i_sub,
+    i_sbn,
+    i_mul,
+    i_div,
+    i_mod,
+    i_exp,
+    i_shl,
+    i_shr,
+    i_and,
+    i_orr,
+    i_xor,
+    i_ldr,
+    i_str,
+    i_ldh,
+    i_brk,
+    i_b,
 };
 
 const Instructions = [_][]const u8{
@@ -74,6 +107,39 @@ const Instructions = [_][]const u8{
     "b",
 };
 
+pub const InstructionSuffix = enum(u8) {
+    ia,
+    ib,
+    da,
+    db,
+};
+
+const InstructionSuffixes = [_][]const u8{
+    "ia",
+    "ib",
+    "da",
+    "db",
+};
+
+pub const ConditionCode = enum(u4) {
+    al = 0,
+    eq = 1,
+    ne = 2,
+    ng = 3,
+    pz = 4,
+    lt = 5,
+    le = 6,
+    gt = 7,
+    ge = 8,
+    vs = 9,
+    vc = 10,
+    es = 11,
+    ec = 12,
+    res_13 = 13,
+    res_14 = 14,
+    nv = 15,
+};
+
 const ConditionCodes = [_][]const u8{
     "al",
     "eq",
@@ -90,18 +156,12 @@ const ConditionCodes = [_][]const u8{
     "ec",
 };
 
-const LdrStrSuffixes = [_][]const u8{
-    "ia",
-    "ib",
-    "da",
-    "db",
-};
-
-const Token = struct {
+pub const Token = struct {
     type: TokenType,
     value: isize = 0,
     slice: []const u8,
     instruction: ?Instruction = null,
+    directive: ?Directive = null,
 };
 
 pub const Lexer = struct {
@@ -169,12 +229,16 @@ pub const Lexer = struct {
             }
         }
 
+        // Set values depending on token type. Only does context-free parsing, e.g. getting the instruction and its components, not e.g. its format or the number of arguments
         switch (return_token.type) {
             .register => {
                 return_token.value = self.parseRegister(return_token.slice);
             },
             .literal => {
                 return_token.value = std.fmt.parseInt(i32, return_token.slice, 0) catch unreachable;
+            },
+            .directive => {
+                return_token.directive = self.parseDirective(return_token.slice);
             },
             else => {},
         }
@@ -205,20 +269,20 @@ pub const Lexer = struct {
 
     fn parseInstruction(self: *Lexer, slice: []const u8) ?Instruction {
         _ = self;
-        var ret = Instruction{ .operation = &.{}, .condition = &.{}, .flag = 0, .suffix = &.{} };
+        var ret = Instruction{ .operation = .i_nop, .condition = .al, .flag = false, .suffix = null };
         var len: usize = 0;
-        for (Instructions) |ins| {
+        for (Instructions, 0..) |ins, i| {
             // Instruction proper
             if (begins(slice, ins)) {
-                ret.operation = ins;
+                ret.operation = @enumFromInt(i);
                 len += ins.len;
             } else continue;
 
             // Suffix
             if (std.mem.eql(u8, ins, "ldr") or std.mem.eql(u8, ins, "str")) {
-                for (LdrStrSuffixes) |suffix| {
+                for (InstructionSuffixes, 0..) |suffix, j| {
                     if (begins(slice[len..], suffix)) {
-                        ret.suffix = suffix;
+                        ret.suffix = @enumFromInt(j);
                         len += suffix.len;
                         break;
                     }
@@ -227,20 +291,30 @@ pub const Lexer = struct {
 
             // Flag
             if (slice.len > len and (slice[len] == 's' or std.mem.eql(u8, ins, "b") and slice[len] == 'l' and slice.len != (len + 2))) {
-                ret.flag = slice[len];
+                ret.flag = true;
                 len += 1;
             }
 
             // Condition code
-            for (ConditionCodes) |cond| {
+            for (ConditionCodes, 0..) |cond, j| {
                 if (std.mem.eql(u8, slice[len..], cond)) {
-                    ret.condition = cond;
+                    ret.condition = @enumFromInt(j);
                     len += cond.len;
                     break;
                 }
             }
 
             if (len == slice.len) return ret;
+        }
+        return null;
+    }
+
+    fn parseDirective(self: *Lexer, slice: []const u8) ?Directive {
+        _ = self;
+        for (0..@intFromEnum(Directive.len)) |i| {
+            if (std.mem.eql(u8, slice, Directives[i])) {
+                return @enumFromInt(i);
+            }
         }
         return null;
     }

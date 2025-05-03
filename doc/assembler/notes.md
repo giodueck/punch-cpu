@@ -14,17 +14,19 @@ Return a struct with additional information:
 Tokens to recognize:
 - newline, *or split into lines in the first place*
 - *split by whitespace and trim comments*
-- directive
+- directive: @directive
     - const declaration
     - variable allocation
     - array allocation
-- label
+- label: .label
 - instruction
     - s or l flag
     - condition suffix
 - argument
     - register
-    - immediate
+    - immediate: #-prefixed literals
+
+Operators are special characters that are their own tokens and prefix other tokens or delimit groups of tokens. E.g. '.', '#' and '$' are prefix operators which condition the following token: the '.' defines a label, the '#' precedes an immediate operand and the '$' precedes a macro parameter inside the macro definition.
 
 # Parser
 

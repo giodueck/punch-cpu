@@ -2,6 +2,8 @@ const std = @import("std");
 const clap = @import("clap");
 const mvzr = @import("mvzr");
 
+const parser = @import("parser.zig");
+
 const stderr = std.io.getStdErr().writer();
 const stdout = std.io.getStdOut().writer();
 
@@ -33,7 +35,7 @@ pub fn main() !u8 {
     // This is optional. You can also leave the `diagnostic` field unset if you
     // don't care about the extra information `Diagnostic` provides.
     var diag = clap.Diagnostic{};
-    var parser = clap.streaming.Clap(u8, std.process.ArgIterator){
+    var cla_parser = clap.streaming.Clap(u8, std.process.ArgIterator){
         .params = &params,
         .iter = &iter,
         .diagnostic = &diag,
@@ -43,7 +45,7 @@ pub fn main() !u8 {
     var source_filename: ?[]const u8 = null;
 
     // Because we use a streaming parser, we have to consume each argument parsed individually.
-    while (parser.next() catch |err| {
+    while (cla_parser.next() catch |err| {
         // Report useful error and exit.
         diag.report(std.io.getStdErr().writer(), err) catch {};
         try stderr.writeAll(usageStr);
@@ -89,47 +91,46 @@ pub fn main() !u8 {
     const raw_program = try file.readToEndAlloc(alloc, 0x40000);
     defer alloc.free(raw_program);
 
-    const word: mvzr.Regex = mvzr.compile("^\\w+").?;
-    const whitespace: mvzr.Regex = mvzr.compile("^[ \\t]+").?;
-    const nl: mvzr.Regex = mvzr.compile("^\n+").?;
-    const line: mvzr.Regex = mvzr.compile("^[^\n]*").?;
+    // const word: mvzr.Regex = mvzr.compile("^\\w+").?;
+    // const whitespace: mvzr.Regex = mvzr.compile("^[ \\t]+").?;
+    // const nl: mvzr.Regex = mvzr.compile("^\n+").?;
+    // const line: mvzr.Regex = mvzr.compile("^[^\n]*").?;
 
-    // TODO
-    // Create array of regexes and identifiers similarly to flex
-    // when parsing:
-    //  - strip whitespace
-    //  - try to match sequentially all of the regexes, until a match is found
-    //  - save array of matches, which could be custom structures with special fields to identify the token
+    // var cursor: usize = 0;
+    // while (raw_program[cursor..].len != 0) {
+    //     var whitespace_match = whitespace.match(raw_program[cursor..]);
+    //     if (whitespace_match) |m| {
+    //         cursor += (m.end - m.start);
+    //     }
+    //     const newline_match = nl.match(raw_program[cursor..]);
+    //     if (newline_match) |m| {
+    //         cursor += (m.end - m.start);
+    //     }
+    //     whitespace_match = whitespace.match(raw_program[cursor..]);
+    //     if (whitespace_match) |m| {
+    //         cursor += (m.end - m.start);
+    //     }
+    //
+    //     if (raw_program[cursor..].len == 0)
+    //         break;
+    //
+    //     const match: ?mvzr.Match = word.match(raw_program[cursor..]);
+    //
+    //     if (match) |m| {
+    //         try stderr.print("{s}\n", .{m.slice});
+    //         cursor += m.slice.len;
+    //     } else {
+    //         const rest_of_line = line.match(raw_program[cursor..]);
+    //         try stderr.print("Error: Unmatched tokens: {s}\n", .{rest_of_line.?.slice});
+    //         cursor += rest_of_line.?.slice.len;
+    //     }
+    // }
 
-    var cursor: usize = 0;
-    while (raw_program[cursor..].len != 0) {
-        var whitespace_match = whitespace.match(raw_program[cursor..]);
-        if (whitespace_match) |m| {
-            cursor += (m.end - m.start);
-        }
-        const newline_match = nl.match(raw_program[cursor..]);
-        if (newline_match) |m| {
-            cursor += (m.end - m.start);
-        }
-        whitespace_match = whitespace.match(raw_program[cursor..]);
-        if (whitespace_match) |m| {
-            cursor += (m.end - m.start);
-        }
+    var p = parser.Parser{};
+    try p.init(alloc, raw_program);
+    defer p.deinit();
 
-        if (raw_program[cursor..].len == 0)
-            break;
-
-        const match: ?mvzr.Match = word.match(raw_program[cursor..]);
-
-        if (match) |m| {
-            try stderr.print("{s}\n", .{m.slice});
-            cursor += m.slice.len;
-        } else {
-            const rest_of_line = line.match(raw_program[cursor..]);
-            try stderr.print("Error: Unmatched tokens: {s}\n", .{rest_of_line.?.slice});
-            cursor += rest_of_line.?.slice.len;
-        }
-    }
+    try p.parse();
 
     return 0;
 }

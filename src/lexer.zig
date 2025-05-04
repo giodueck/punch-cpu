@@ -25,6 +25,8 @@ const TokenType = enum {
     eof,
     /// Invalid token
     syntax_error,
+    /// Invalid literal, i.e. does not fit into an i32
+    value_error,
 };
 
 pub const Directive = enum(u8) {
@@ -33,6 +35,7 @@ pub const Directive = enum(u8) {
     array,
     macro_start,
     macro_end,
+    /// Not an actual directive, just tells how long the enum is
     len,
 };
 
@@ -48,6 +51,9 @@ pub const Operator = enum {
     label,
     immediate,
     macro_argument,
+    list_start,
+    list_end,
+    comma,
 };
 
 /// Instruction divided into its various possible components
@@ -158,7 +164,7 @@ const ConditionCodes = [_][]const u8{
 
 pub const Token = struct {
     type: TokenType,
-    value: isize = 0,
+    value: i32 = 0,
     slice: []const u8,
     instruction: ?Instruction = null,
     directive: ?Directive = null,
@@ -173,7 +179,7 @@ pub const Lexer = struct {
 
         try self.regexes.put(.newline, mvzr.compile("^\n").?);
         try self.regexes.put(.directive, mvzr.compile("^@\\w+").?);
-        try self.regexes.put(.operator, mvzr.compile("^[\\.#\\$]").?);
+        try self.regexes.put(.operator, mvzr.compile("^[\\.#\\$\\[\\]\\,]").?);
         try self.regexes.put(.register, mvzr.compile("^(x[0-9]\\b)|(x1[012345]\\b)|(t[12]\\b)|(sp\\b)|(lr\\b)|(pc\\b)").?);
         try self.regexes.put(.literal, mvzr.compile("^[+-]?((0x[0-9abcdef]+\\b)|(0b[01]+\\b)|(0o[0-7]+\\b)|([0-9]+\\b))").?);
         try self.regexes.put(.instruction, mvzr.compile("^\\w+").?);
@@ -235,16 +241,23 @@ pub const Lexer = struct {
                 return_token.value = self.parseRegister(return_token.slice);
             },
             .literal => {
-                return_token.value = std.fmt.parseInt(i32, return_token.slice, 0) catch unreachable;
+                return_token.value = std.fmt.parseInt(i32, return_token.slice, 0) catch blk: {
+                    const u32val = std.fmt.parseInt(u32, return_token.slice, 0) catch blk2: {
+                        return_token.type = .value_error;
+                        break :blk2 0;
+                    };
+                    break :blk @bitCast(u32val);
+                };
             },
             .directive => {
                 return_token.directive = self.parseDirective(return_token.slice);
+                if (return_token.directive == null) {
+                    return_token.type = .syntax_error;
+                }
             },
             else => {},
         }
 
-        if (return_token.type == .newline)
-            std.debug.print("NEWLINE\n", .{});
         return return_token;
     }
 
@@ -313,7 +326,7 @@ pub const Lexer = struct {
 
     fn parseDirective(self: *Lexer, slice: []const u8) ?Directive {
         _ = self;
-            for (0..@intFromEnum(Directive.len)) |i| {
+        for (0..@intFromEnum(Directive.len)) |i| {
             if (std.mem.eql(u8, slice[1..], Directives[i])) {
                 return @enumFromInt(i);
             }

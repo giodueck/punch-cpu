@@ -70,7 +70,6 @@ pub fn main() !u8 {
                     try stderr.writeAll(usageStr);
                     return 1;
                 }
-                std.debug.print("{c}: {s}\n", .{ arg.param.id, arg.value.? });
                 source_filename = arg.value;
             },
             else => unreachable,
@@ -126,8 +125,8 @@ pub fn main() !u8 {
     //     }
     // }
 
-    var p = parser.Parser{};
-    try p.init(alloc, raw_program);
+    var p = parser.Parser{ .input = raw_program };
+    try p.init(alloc);
     defer p.deinit();
 
     try p.parse();

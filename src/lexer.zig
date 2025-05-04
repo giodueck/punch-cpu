@@ -171,7 +171,7 @@ pub const Lexer = struct {
     pub fn init(self: *Lexer, allocator: std.mem.Allocator) !void {
         self.regexes = std.AutoHashMap(TokenType, mvzr.Regex).init(allocator);
 
-        try self.regexes.put(.newline, mvzr.compile("^\n+").?);
+        try self.regexes.put(.newline, mvzr.compile("^\n").?);
         try self.regexes.put(.directive, mvzr.compile("^@\\w+").?);
         try self.regexes.put(.operator, mvzr.compile("^[\\.#\\$]").?);
         try self.regexes.put(.register, mvzr.compile("^(x[0-9]\\b)|(x1[012345]\\b)|(t[12]\\b)|(sp\\b)|(lr\\b)|(pc\\b)").?);
@@ -243,6 +243,8 @@ pub const Lexer = struct {
             else => {},
         }
 
+        if (return_token.type == .newline)
+            std.debug.print("NEWLINE\n", .{});
         return return_token;
     }
 
@@ -311,8 +313,8 @@ pub const Lexer = struct {
 
     fn parseDirective(self: *Lexer, slice: []const u8) ?Directive {
         _ = self;
-        for (0..@intFromEnum(Directive.len)) |i| {
-            if (std.mem.eql(u8, slice, Directives[i])) {
+            for (0..@intFromEnum(Directive.len)) |i| {
+            if (std.mem.eql(u8, slice[1..], Directives[i])) {
                 return @enumFromInt(i);
             }
         }

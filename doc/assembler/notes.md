@@ -51,3 +51,24 @@ Several passes:
 3. replace labels in code.
 4. machine code generation: replace istructions with binary instructions, verify formats and immediate bit-widths.
 5. compile machine code into ROM blueprint.
+
+Progress:
+- [ ] First pass
+    - [x] `@const ident literal`
+    - [x] `@var ident literal`
+    - [x] `@array ident literal '[' list_of_literals ']'`
+    - [ ] `@macro ident literal`
+    - [ ] (in macro) `instruction macro_arglist`
+    - [ ] (in macro) `ident macro_arglist`
+    - [ ] `@endm`
+    - [x] `.label ident`: save ident
+- [ ] Second pass
+    - [ ] replace macros
+    - [ ] instructions: count and report syntax errors
+    - [ ] `.label ident`: save address
+- [ ] Third pass
+    - [ ] instructions: parse arguments, replace idents with values as immediate arguments
+- [ ] Fourth pass
+    - [ ] machine code gen
+- [ ] Fifth pass
+    - [ ] BP gen

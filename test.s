@@ -1,6 +1,6 @@
 @const test 123
-@array test 8 [0]
-@var test 0xdeaddead
+@array arr1 8 [0]
+.label @var var1 0xdeaddead
 
 ;add x1 #0b1011
 ;adds x4 #0o2700

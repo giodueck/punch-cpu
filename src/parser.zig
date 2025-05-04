@@ -25,7 +25,7 @@ const SymbolType = enum {
 const Symbol = struct {
     type: SymbolType,
     /// Constant value, label instruction index, variable/array address
-    value: isize = 0,
+    value: i32 = 0,
     /// Argument count for macros
     arg_count: usize = 0,
 };
@@ -76,31 +76,46 @@ pub const Parser = struct {
     // TODO separate into stages, as in notes.md
     pub fn parse(self: *Parser) !void {
         var token = self.lexer.lex();
+        var expect_eol = false;
+
+        // Take one token and run a parser rule based on that token, except when the last rule expected an end of line
         while (token.type != .eof) : (token = self.lexer.lex()) {
-            switch (token.type) {
-                .directive => {
-                    try self.parseDirective(token.directive.?);
-                },
-                .instruction => {
-                    try self.parseInstruction(token.instruction.?);
-                },
-                .newline => {
+            if (expect_eol) {
+                if (token.type != .newline) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected end of line, got '{s}'", .{token.slice});
+                    try self.parseError(token, err_msg);
+                } else {
                     try self.parseNewline();
-                },
-                .operator => {
-                    switch (token.slice[0]) {
-                        '.' => {
-                            try self.parseLabel();
-                        },
-                        else => {
-                            std.debug.print("Operator not implemented: {s}\n", .{token.slice});
-                        },
-                    }
-                },
-                else => {
-                    std.debug.print("{any}: {s}\n", .{ token.type, token.slice });
-                    try self.parseError(token, "not implemented");
-                },
+                }
+                expect_eol = false;
+            } else {
+                switch (token.type) {
+                    .directive => {
+                        try self.parseDirective(token.directive.?);
+                        expect_eol = true;
+                    },
+                    .instruction => {
+                        try self.parseInstruction(token.instruction.?);
+                        expect_eol = true;
+                    },
+                    .newline => {
+                        try self.parseNewline();
+                    },
+                    .operator => {
+                        switch (token.slice[0]) {
+                            '.' => {
+                                try self.parseLabelFirst();
+                            },
+                            else => {
+                                std.debug.print("Operator not implemented: {s}\n", .{token.slice});
+                            },
+                        }
+                    },
+                    else => {
+                        std.debug.print("{any}: {s}\n", .{ token.type, token.slice });
+                        try self.parseError(token, "not implemented");
+                    },
+                }
             }
         }
 
@@ -286,13 +301,20 @@ pub const Parser = struct {
         std.debug.print("{any} \n", .{instruction});
     }
 
-    fn parseLabel(self: *Parser) !void {
+    fn parseLabelFirst(self: *Parser) !void {
         const ident = self.lexer.lex();
         if (ident.type != .identifier) {
             const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected identifier, got '{s}'", .{ident.slice});
             return self.parseError(ident, err_msg);
         }
-        // TODO save identifier and instruction
-        std.debug.print("Label with ident: {s}\n", .{ident.slice});
+
+        // Check if symbol can be defined
+        if (self.symbols.contains(ident.slice)) {
+            const err_msg = try std.fmt.bufPrint(&self.err_buffer, "name '{s}' already defined", .{ident.slice});
+            return self.parseError(ident, err_msg);
+        }
+
+        // Store label without any value at first, it is assigned in a later pass
+        try self.symbols.put(ident.slice, Symbol{ .type = .label });
     }
 };

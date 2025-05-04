@@ -41,10 +41,14 @@ const ParsedInstruction = struct {
 pub const Parser = struct {
     lexer: Lexer = undefined,
     input: []u8,
+
     lines: std.ArrayList([]const u8) = undefined,
     curr_line: usize = 1,
+    in_macro: bool = false,
+
     err_buffer: [512]u8 = [_]u8{8} ** 512,
     err_count: usize = 0,
+
     symbols: std.StringHashMap(Symbol) = undefined,
     program: std.ArrayList(ParsedInstruction) = undefined,
     data: std.ArrayList(i32) = undefined,
@@ -78,6 +82,8 @@ pub const Parser = struct {
         var token = self.lexer.lex();
         var expect_eol = false;
 
+        // First pass
+
         // Take one token and run a parser rule based on that token, except when the last rule expected an end of line
         while (token.type != .eof) : (token = self.lexer.lex()) {
             if (expect_eol) {
@@ -89,32 +95,44 @@ pub const Parser = struct {
                 }
                 expect_eol = false;
             } else {
-                switch (token.type) {
-                    .directive => {
-                        try self.parseDirective(token.directive.?);
-                        expect_eol = true;
-                    },
-                    .instruction => {
-                        try self.parseInstruction(token.instruction.?);
-                        expect_eol = true;
-                    },
-                    .newline => {
-                        try self.parseNewline();
-                    },
-                    .operator => {
-                        switch (token.slice[0]) {
-                            '.' => {
-                                try self.parseLabelFirst();
-                            },
-                            else => {
-                                std.debug.print("Operator not implemented: {s}\n", .{token.slice});
-                            },
-                        }
-                    },
-                    else => {
-                        std.debug.print("{any}: {s}\n", .{ token.type, token.slice });
-                        try self.parseError(token, "not implemented");
-                    },
+                if (!self.in_macro) {
+                    switch (token.type) {
+                        .directive => {
+                            try self.parseDirective(token.directive.?);
+                            expect_eol = true;
+                        },
+                        .instruction => {
+                            try self.parseInstructionFirst(token.instruction.?);
+                            expect_eol = true;
+                        },
+                        .newline => {
+                            try self.parseNewline();
+                        },
+                        .operator => {
+                            switch (token.slice[0]) {
+                                '.' => {
+                                    try self.parseLabelFirst();
+                                },
+                                else => {
+                                    std.debug.print("Operator not implemented: {s}\n", .{token.slice});
+                                },
+                            }
+                        },
+                        else => {
+                            std.debug.print("{any}: {s}\n", .{ token.type, token.slice });
+                            try self.parseError(token, "not implemented");
+                        },
+                    }
+                } else {
+                    switch (token.type) {
+                        .directive => {
+                            try self.parseDirective(token.directive.?);
+                            expect_eol = true;
+                        },
+                        else => {
+                            std.debug.print("(in macro, ignored) {any}: {s}\n", .{ token.type, token.slice });
+                        },
+                    }
                 }
             }
         }
@@ -128,6 +146,12 @@ pub const Parser = struct {
         std.debug.print("\nData:\n", .{});
         for (self.data.items) |item| {
             std.debug.print("{d}, ", .{item});
+        }
+        std.debug.print("\n", .{});
+
+        std.debug.print("\nProgram:\n", .{});
+        for (self.program.items) |ins| {
+            std.debug.print("{}\n", .{ins});
         }
         std.debug.print("\n", .{});
     }
@@ -290,15 +314,27 @@ pub const Parser = struct {
                 try self.symbols.put(ident.slice, Symbol{ .type = .array, .value = addr });
             },
             // TODO macro
+            .macro_start => {
+                self.in_macro = true;
+                while (self.lexer.look().type != .newline) {
+                    _ = self.lexer.lex();
+                }
+            },
+            .macro_end => {
+                self.in_macro = false;
+            },
             else => {
                 std.debug.print("Not implemented: {}\n", .{directive});
             },
         }
     }
 
-    fn parseInstruction(self: *Parser, instruction: Instruction) !void {
-        _ = self;
-        std.debug.print("{any} \n", .{instruction});
+    /// Registers the instruction without any arguments for the sole purpose of counting them for the label definitions
+    fn parseInstructionFirst(self: *Parser, instruction: Instruction) !void {
+        try self.program.append(ParsedInstruction{ .instruction = instruction, .destination = 0, .op1 = 0, .op2 = 0, .immediate = false });
+        while (self.lexer.look().type != .newline) {
+            _ = self.lexer.lex();
+        }
     }
 
     fn parseLabelFirst(self: *Parser) !void {
@@ -316,5 +352,7 @@ pub const Parser = struct {
 
         // Store label without any value at first, it is assigned in a later pass
         try self.symbols.put(ident.slice, Symbol{ .type = .label });
+
+        // TODO save label value in first pass
     }
 };

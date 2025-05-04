@@ -61,11 +61,10 @@ Progress:
     - [ ] (in macro) `instruction macro_arglist`
     - [ ] (in macro) `ident macro_arglist`
     - [ ] `@endm`
-    - [x] `.label ident`: save ident
+    - [ ] `.label ident`: save ident and set addr with ongoing instruction count
+    - [ ] instructions: count and report syntax errors. Macros counted with instructions inside macro
 - [ ] Second pass
     - [ ] replace macros
-    - [ ] instructions: count and report syntax errors
-    - [ ] `.label ident`: save address
 - [ ] Third pass
     - [ ] instructions: parse arguments, replace idents with values as immediate arguments
 - [ ] Fourth pass

@@ -57,12 +57,12 @@ Progress:
     - [x] `@const ident literal`
     - [x] `@var ident literal`
     - [x] `@array ident literal '[' list_of_literals ']'`
+    - [x] `.label ident`
+    - [x] instructions: count and report syntax errors. Macros counted with instructions inside macro
     - [ ] `@macro ident literal`
     - [ ] (in macro) `instruction macro_arglist`
     - [ ] (in macro) `ident macro_arglist`
     - [ ] `@endm`
-    - [ ] `.label ident`: save ident and set addr with ongoing instruction count
-    - [ ] instructions: count and report syntax errors. Macros counted with instructions inside macro
 - [ ] Second pass
     - [ ] replace macros
 - [ ] Third pass

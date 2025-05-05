@@ -350,9 +350,7 @@ pub const Parser = struct {
             return self.parseError(ident, err_msg);
         }
 
-        // Store label without any value at first, it is assigned in a later pass
-        try self.symbols.put(ident.slice, Symbol{ .type = .label });
-
-        // TODO save label value in first pass
+        // Value is the address after the current instruction
+        try self.symbols.put(ident.slice, Symbol{ .type = .label, .value = @intCast(self.program.items.len) });
     }
 };

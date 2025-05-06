@@ -52,7 +52,23 @@ Several passes:
 4. machine code generation: replace istructions with binary instructions, verify formats and immediate bit-widths.
 5. compile machine code into ROM blueprint.
 
-Progress:
+## Macros
+macro_start: @macro ident literal
+macro_end:   @endm
+macro_call:  ident arg_list
+macro_content: instruction
+             | macro_call
+(macro_content in a list)
+
+Store as a list of instructions and argument count.
+
+Store instructions with their destination, op1 and op2 arguments, and optional argument indices, which if not null override that argument with the argument passed to the macro call.
+
+Parse macro definitions by parsing instructions and storing in this format into an arraylist. Resolve macro calls by saving the instructions called in the nested macro. This way, every macro is just a list of parameterized instructions and not a possibly nested structure.
+
+Replace macro calls with the list of instructions they store, replacing the parameters given. Determine at this point whether the instructions use an immediate format, if op2 is parameterized.
+
+## Progress
 - [ ] First pass
     - [x] `@const ident literal`
     - [x] `@var ident literal`
@@ -63,6 +79,7 @@ Progress:
     - [ ] (in macro) `instruction macro_arglist`
     - [ ] (in macro) `ident macro_arglist`
     - [ ] `@endm`
+    - [ ] Const resolution in first pass, after they have been defined, even inside directives
 - [ ] Second pass
     - [ ] replace macros
 - [ ] Third pass

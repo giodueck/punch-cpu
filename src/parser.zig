@@ -24,10 +24,8 @@ const SymbolType = enum {
 
 const Symbol = struct {
     type: SymbolType,
-    /// Constant value, label instruction index, variable/array address
+    /// Constant value, label instruction index, variable/array address, macro index
     value: i32 = 0,
-    /// Argument count for macros
-    arg_count: usize = 0,
 };
 
 const ParsedInstruction = struct {
@@ -36,9 +34,27 @@ const ParsedInstruction = struct {
     op1: u4,
     op2: i32,
     immediate: bool,
+    e_bits: u8 = 0,
+};
+
+const MacroInstruction = struct {
+    instruction: Instruction,
+    destination: u4,
+    op1: u4,
+    op2: i32,
+    immediate: bool,
+    destination_arg: ?usize,
+    op1_arg: ?usize,
+    op2_arg: ?usize,
+};
+
+const Macro = struct {
+    arg_count: usize = 0,
+    instructions: std.ArrayList(MacroInstruction) = undefined,
 };
 
 pub const Parser = struct {
+    allocator: std.mem.Allocator = undefined,
     lexer: Lexer = undefined,
     input: []u8,
 
@@ -50,10 +66,13 @@ pub const Parser = struct {
     err_count: usize = 0,
 
     symbols: std.StringHashMap(Symbol) = undefined,
+    macros: std.ArrayList(Macro) = undefined,
     program: std.ArrayList(ParsedInstruction) = undefined,
     data: std.ArrayList(i32) = undefined,
 
     pub fn init(self: *Parser, allocator: std.mem.Allocator) !void {
+        self.allocator = allocator;
+
         self.lexer = Lexer{ .input = self.input };
         try self.lexer.init(allocator);
 
@@ -64,7 +83,7 @@ pub const Parser = struct {
         }
 
         self.symbols = std.StringHashMap(Symbol).init(allocator);
-
+        self.macros = std.ArrayList(Macro).init(allocator);
         self.program = std.ArrayList(ParsedInstruction).init(allocator);
         self.data = std.ArrayList(i32).init(allocator);
     }
@@ -72,6 +91,7 @@ pub const Parser = struct {
     pub fn deinit(self: *Parser) void {
         self.data.deinit();
         self.program.deinit();
+        self.macros.deinit();
         self.symbols.deinit();
         self.lines.deinit();
         self.lexer.deinit();
@@ -313,13 +333,51 @@ pub const Parser = struct {
                 // Finally store symbol
                 try self.symbols.put(ident.slice, Symbol{ .type = .array, .value = addr });
             },
-            // TODO macro
+            // Macro format: "@macro" ident literal
+            // While in macro, should only accept intructions or macro calls
             .macro_start => {
                 self.in_macro = true;
-                while (self.lexer.look().type != .newline) {
-                    _ = self.lexer.lex();
+                const ident = self.lexer.lex();
+                if (ident.type != .identifier) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected identifier, got '{s}'", .{ident.slice});
+                    return self.parseError(ident, err_msg);
+                }
+
+                // Check if symbol can be defined before going through the rest
+                if (self.symbols.contains(ident.slice)) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "name '{s}' already defined", .{ident.slice});
+                    return self.parseError(ident, err_msg);
+                }
+
+                // Number of arguments
+                const literal = self.lexer.lex();
+                if (literal.type != .literal) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected numeric literal, got '{s}'", .{literal.slice});
+                    return self.parseError(literal, err_msg);
+                }
+
+                if (literal.value < 0) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected non-negative literal for macro argument count, got '{s}'", .{literal.slice});
+                    return self.parseError(literal, err_msg);
+                }
+
+                var macro: Macro = .{ .instructions = std.ArrayList(MacroInstruction).init(self.allocator), .arg_count = @intCast(literal.value) };
+
+                // TODO support nested macros. Assume right now we can only get instructions
+                var tok = self.lexer.look();
+                while (tok.type == .instruction) : (tok = self.lexer.look()) {
+                    // TODO finish implementing this method
+                    try self.parseMacroInstruction(&macro);
+                }
+
+                // Broke out of loop because lexer gave something not allowed inside macro definition, check if this is a @endm
+                if (tok.type != .directive or tok.directive.? != .macro_end) {
+                    tok = self.lexer.lex();
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "unexpected '{s}', macro definitions may only contain instructions and macro calls", .{tok.slice});
+                    return self.parseError(tok, err_msg);
                 }
             },
+            // Macro end format: "@endm"
             .macro_end => {
                 self.in_macro = false;
             },
@@ -334,6 +392,190 @@ pub const Parser = struct {
         try self.program.append(ParsedInstruction{ .instruction = instruction, .destination = 0, .op1 = 0, .op2 = 0, .immediate = false });
         while (self.lexer.look().type != .newline) {
             _ = self.lexer.lex();
+        }
+    }
+
+    /// Parses the instruction as part of a macro: takes either register, immediate, or macro parameter arguments
+    /// Assumes no tokens have been consumed yet, i.e. the next token to be consumed by the lexer is the instruction
+    fn parseMacroInstruction(self: *Parser, macro: *Macro) !void {
+        const ins = self.lexer.lex();
+        if (ins.type != .instruction) {
+            const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected macro instruction, got '{s}'", .{ins.slice});
+            return self.parseError(ins, err_msg);
+        }
+
+        // Longest instructions take 3 arguments
+        // TODO:
+        //  - read all arguments
+        //  - save into macro instruction list
+        //  - save optional macro index in ParsedInstruction for better error reporting when an instruction receives a bad argument by macro parameter
+        _ = macro;
+    }
+
+    /// Assemble Instruction with arguments into a ParsedInstruction, or return null and report if there was an error.
+    /// Assumes the next token to be consumed by the lexer is a newline or eof
+    /// TODO integrate into third pass
+    /// TODO resolve identifiers
+    fn assembleInstruction(self: *Parser, instruction: Instruction, arg1: ?Token, arg2: ?Token, arg3: ?Token) !?ParsedInstruction {
+        switch (instruction.operation) {
+            .i_setf => {
+                // setf xs/imm
+                if (arg1 == null or arg2 != null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'setf' takes 1 argument: xs/imm", .{});
+                    try self.parseError(instruction, err_msg);
+                    return null;
+                }
+
+                return ParsedInstruction{ .instruction = instruction, .destination = 0, .op1 = 0, .op2 = arg1.?, .immediate = (arg1.?.type != .literal) };
+            },
+            .i_wait => {
+                // wait t1/t2
+                if (arg1 == null or arg2 != null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'wait' takes 1 argument: t1/t2", .{});
+                    try self.parseError(instruction, err_msg);
+                    return null;
+                }
+
+                // arg1 may only be a register, and only very specific registers: t1/t2, aka x11/x12
+                if (arg1.?.type != .register or (arg1.?.value != 11 and arg1.?.value != 12)) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'wait' argument 1 must be one of t1, t2 (aka x11, x12)", .{});
+                    try self.parseError(instruction, err_msg);
+                    return null;
+                }
+
+                return ParsedInstruction{ .instruction = instruction, .destination = 0, .op1 = 0, .op2 = 0, .immediate = false, .e_bits = arg1.?.value };
+            },
+            .i_nop, .i_brk => {
+                if (arg1 != null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes no arguments", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(instruction, err_msg);
+                    return null;
+                }
+
+                return ParsedInstruction{ .instruction = instruction, .destination = 0, .op1 = 0, .op2 = 0, .immediate = 0 };
+            },
+            .i_add, .i_sub, .i_sbn, .i_mul, .i_div, .i_mod, .i_exp, .i_shl, .i_shr, .i_and, .i_orr, .i_xor => {
+                if (arg1 == null or arg2 == null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 2 or 3 arguments: <xd> xr xs/imm", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(instruction, err_msg);
+                    return null;
+                }
+
+                if (arg3 != null) {
+                    // alu xd xr xs/imm
+                    if (arg1.?.type != .register) {
+                        const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 1 must be a register", .{@tagName(instruction.operation)[2..]});
+                        try self.parseError(instruction, err_msg);
+                        return null;
+                    }
+
+                    if (arg2.?.type != .register) {
+                        const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 2 must be a register when passing 3 arguments", .{@tagName(instruction.operation)[2..]});
+                        try self.parseError(instruction, err_msg);
+                        return null;
+                    }
+
+                    return ParsedInstruction{ .instruction = instruction, .destination = arg1.?.value, .op1 = arg2.?.value, .op2 = arg3.?.value, .immediate = (arg3.?.type != .register), .e_bits = 0 };
+                } else {
+                    // alu xr xs/imm
+                    if (arg1.?.type != .register) {
+                        const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 1 must be a register", .{@tagName(instruction.operation)[2..]});
+                        try self.parseError(instruction, err_msg);
+                        return null;
+                    }
+
+                    return ParsedInstruction{ .instruction = instruction, .destination = arg1.?.value, .op1 = arg2.?.value, .op2 = arg2.?.value, .immediate = (arg2.?.type != .register), .e_bits = 0 };
+                }
+            },
+            .i_ldr, .i_str => {
+                // ldr/str xd xs/imm [v]
+                if (arg1 == null or arg2 == null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 2 or 3 arguments: xd xs/imm [v]", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(instruction, err_msg);
+                    return null;
+                }
+
+                if (arg1.?.type != .register) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 1 must be a register", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(instruction, err_msg);
+                    return null;
+                }
+
+                var e: u8 = 0;
+                if (instruction.suffix != null) {
+                    if (arg2.?.type != .register) {
+                        const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' address modification only supported for register addresses, argument 2 must be a register", .{ @tagName(instruction.operation)[2..], @tagName(instruction.suffix.?) });
+                        try self.parseError(instruction, err_msg);
+                        return null;
+                    }
+
+                    if (arg3 != null and arg3.?.type == .register) {
+                        const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 3 must be an immediate", .{@tagName(instruction.operation)[2..]});
+                        try self.parseError(instruction, err_msg);
+                        return null;
+                    }
+
+                    if (arg3.?.value > std.math.maxInt(i7) or arg3.?.value < std.math.minInt(i7)) {
+                        const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 3 does not fit in a 7-bit integer [{d},{d}]", .{ @tagName(instruction.operation)[2..], std.math.minInt(i7), std.math.maxInt(i7) });
+                        try self.parseError(instruction, err_msg);
+                        return null;
+                    }
+
+                    e = @bitCast(@as(i8, @truncate(arg3.?.value << 1)));
+                    e |= switch (instruction.suffix) {
+                        .ia, .da => 0,
+                        .ib, .db => 1,
+                    };
+                } else if (arg3 != null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 2 arguments when used without address register modification: xd xs/imm", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(instruction, err_msg);
+                    return null;
+                }
+
+                return ParsedInstruction{
+                    .instruction = instruction,
+                    .destination = arg1.?.value,
+                    .op1 = 0,
+                    .op2 = arg2.?.value,
+                    .immediate = (arg2.?.type != .register),
+                    .e_bits = e,
+                };
+            },
+            .i_ldh => {
+                // ldh xd imm
+                if (arg1 == null or arg2 == null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 2 arguments: xd imm", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(instruction, err_msg);
+                    return null;
+                }
+
+                if (arg1.?.type != .register) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 1 must be a register", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(instruction, err_msg);
+                    return null;
+                }
+
+                if (arg2.?.type == .register) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 2 must be an immediate", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(instruction, err_msg);
+                    return null;
+                }
+
+                return ParsedInstruction{ .instruction = instruction, .destination = arg1.?.value, .op1 = 0, .op2 = arg2.?.value & 0xFFFF, .immediate = true };
+            },
+            .i_b => {
+                // b xs/imm
+                if (arg1 == null or arg2 != null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 2: xs/imm", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(instruction, err_msg);
+                    return null;
+                }
+
+                return ParsedInstruction{ .instruction = instruction, .destination = 0, .op1 = 0, .op2 = arg1.?.value, .immediate = (arg1.?.type != .register) };
+            },
+            else => {
+                return null;
+            },
         }
     }
 

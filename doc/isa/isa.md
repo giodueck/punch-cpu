@@ -156,8 +156,8 @@ There are 3 first class instructions in this category.
 
 Mnemonic | Opcode | Operands    | Description
 -------- | ------ | ----------- | -----------
-`ldr<s>` |  10000 | `xd rs/imm` | Load a word from memory at address pointed to by the second operand.
-`str`    |  10001 | `xd rs/imm` | Store a word from the source register (xd) to memory at address pointed to by the second operand.
+`ldr<s>` |  10000 | `xd xs/imm` | Load a word from memory at address pointed to by the second operand.
+`str`    |  10001 | `xd xs/imm` | Store a word from the source register (xd) to memory at address pointed to by the second operand.
 `ldh<s>` |  10010 | `xd imm`    | Load a 16-bit immediate into the upper 16 bits of the destination, clearing the lower bits. Can be used to construct 32-bit immediates with 2 instructions.
 
 > **Note** The first operand stays unused in all of these instructions. Encodings with the first operand different from 0 are reserved for future extensions.
@@ -201,7 +201,7 @@ The branch instruction immediately fetches the next desired instruction in the n
 
 Mnemonic | Opcode | Operands | Description
 -------- | ------ | -------- | -----------
-`b<l>`   |  11100 | `rs/imm` | Adds operand 2 as an offset to PC. If `l` is appended, also stores the address of the following instruction in LR.
+`b<l>`   |  11100 | `xs/imm` | Adds operand 2 as an offset to PC. If `l` is appended, also stores the address of the following instruction in LR.
 
 Although using a register as the destination address is possible, it may be impractical because it is only an offset, which is calculated by an assembler if it is an immediate. In these cases, an ALU instruction may be better suited, like when branching to LR.
 
@@ -212,7 +212,7 @@ There are 2 control instructions, meant to provide ways to manipulate otherwise 
 
 Mnemonic | Opcode | Operands | Description
 -------- | ------ | -------- | -----------
-`setf`   |  11101 | `rs/imm` | Sets flags to the lower 4 bits of operand 2, corresponding from MSB to LSB to Z, N, V and E respectively. E.g. 0xc = 0b1100, which sets the Z and N flags and unsets the V and E flags.
+`setf`   |  11101 | `xs/imm` | Sets flags to the lower 4 bits of operand 2, corresponding from MSB to LSB to Z, N, V and E respectively. E.g. 0xc = 0b1100, which sets the Z and N flags and unsets the V and E flags.
 `brk`    |  11110 |          | Stop clock and resume only manually.
 `wait`   |  11110 | `t1/t2`  | Same instruction as brk, but clock restarts when the given timer reaches 0.
 

@@ -5,6 +5,7 @@ const Lexer = lexer.Lexer;
 const Token = lexer.Token;
 const Directive = lexer.Directive;
 const Instruction = lexer.Instruction;
+const Operator = lexer.Operator;
 
 const stderr = std.io.getStdErr().writer();
 
@@ -39,13 +40,12 @@ const ParsedInstruction = struct {
 
 const MacroInstruction = struct {
     instruction: Instruction,
-    destination: u4,
-    op1: u4,
-    op2: i32,
-    immediate: bool,
-    destination_arg: ?usize,
-    op1_arg: ?usize,
-    op2_arg: ?usize,
+    arg1op: ?Operator = null,
+    arg1: ?i32 = null,
+    arg2op: ?Operator = null,
+    arg2: ?i32 = null,
+    arg3op: ?Operator = null,
+    arg3: ?i32 = null,
 };
 
 const Macro = struct {
@@ -91,6 +91,9 @@ pub const Parser = struct {
     pub fn deinit(self: *Parser) void {
         self.data.deinit();
         self.program.deinit();
+        for (self.macros.items) |m| {
+            m.instructions.deinit();
+        }
         self.macros.deinit();
         self.symbols.deinit();
         self.lines.deinit();
@@ -115,44 +118,32 @@ pub const Parser = struct {
                 }
                 expect_eol = false;
             } else {
-                if (!self.in_macro) {
-                    switch (token.type) {
-                        .directive => {
-                            try self.parseDirective(token.directive.?);
-                            expect_eol = true;
-                        },
-                        .instruction => {
-                            try self.parseInstructionFirst(token.instruction.?);
-                            expect_eol = true;
-                        },
-                        .newline => {
-                            try self.parseNewline();
-                        },
-                        .operator => {
-                            switch (token.slice[0]) {
-                                '.' => {
-                                    try self.parseLabelFirst();
-                                },
-                                else => {
-                                    std.debug.print("Operator not implemented: {s}\n", .{token.slice});
-                                },
-                            }
-                        },
-                        else => {
-                            std.debug.print("{any}: {s}\n", .{ token.type, token.slice });
-                            try self.parseError(token, "not implemented");
-                        },
-                    }
-                } else {
-                    switch (token.type) {
-                        .directive => {
-                            try self.parseDirective(token.directive.?);
-                            expect_eol = true;
-                        },
-                        else => {
-                            std.debug.print("(in macro, ignored) {any}: {s}\n", .{ token.type, token.slice });
-                        },
-                    }
+                switch (token.type) {
+                    .directive => {
+                        try self.parseDirective(token.directive.?);
+                        expect_eol = true;
+                    },
+                    .instruction => {
+                        try self.parseInstructionFirst(token.instruction.?);
+                        expect_eol = true;
+                    },
+                    .newline => {
+                        try self.parseNewline();
+                    },
+                    .operator => {
+                        switch (token.slice[0]) {
+                            '.' => {
+                                try self.parseLabelFirst();
+                            },
+                            else => {
+                                std.debug.print("Operator not implemented: {s}\n", .{token.slice});
+                            },
+                        }
+                    },
+                    else => {
+                        std.debug.print("{any}: {s}\n", .{ token.type, token.slice });
+                        try self.parseError(token, "not implemented");
+                    },
                 }
             }
         }
@@ -166,6 +157,12 @@ pub const Parser = struct {
         std.debug.print("\nData:\n", .{});
         for (self.data.items) |item| {
             std.debug.print("{d}, ", .{item});
+        }
+        std.debug.print("\n", .{});
+
+        std.debug.print("\nMacros:\n", .{});
+        for (self.macros.items) |m| {
+            std.debug.print("{} {any}\n", .{m.arg_count, m.instructions.items});
         }
         std.debug.print("\n", .{});
 
@@ -184,6 +181,13 @@ pub const Parser = struct {
         if (last.type != .syntax_error and last.type != .value_error) {
             self.err_count += 1;
             try stderr.print("Error on line {d}: {s}\n", .{ self.curr_line, msg });
+
+            // If currently in a macro, skip the rest of it until getting to the end of it
+            var tok = self.lexer.lex();
+            while (tok.type != .directive or tok.directive.? != .macro_end) {
+                if (tok.type == .newline) try self.parseNewline();
+                tok = self.lexer.lex();
+            }
         } else if (last.type == .value_error) {
             self.err_count += 1;
             try stderr.print("Value error on line {d}: '{s}' does not fit in a 32-bit signed integer\n", .{ self.curr_line, last.slice });
@@ -361,28 +365,35 @@ pub const Parser = struct {
                     return self.parseError(literal, err_msg);
                 }
 
+                const newline = self.lexer.lex();
+                if (newline.type != .newline) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected newline, got '{s}'", .{literal.slice});
+                    return self.parseError(newline, err_msg);
+                }
+
                 var macro: Macro = .{ .instructions = std.ArrayList(MacroInstruction).init(self.allocator), .arg_count = @intCast(literal.value) };
 
                 // TODO support nested macros. Assume right now we can only get instructions
                 var tok = self.lexer.look();
                 while (tok.type == .instruction) : (tok = self.lexer.look()) {
-                    // TODO finish implementing this method
                     try self.parseMacroInstruction(&macro);
                 }
 
                 // Broke out of loop because lexer gave something not allowed inside macro definition, check if this is a @endm
                 if (tok.type != .directive or tok.directive.? != .macro_end) {
                     tok = self.lexer.lex();
+                    macro.instructions.deinit();
                     const err_msg = try std.fmt.bufPrint(&self.err_buffer, "unexpected '{s}', macro definitions may only contain instructions and macro calls", .{tok.slice});
                     return self.parseError(tok, err_msg);
                 }
-            },
-            // Macro end format: "@endm"
-            .macro_end => {
+                // Macro end format: "@endm"
+                _ = self.lexer.lex();
+
                 self.in_macro = false;
+                try self.symbols.put(ident.slice, Symbol{.type = .macro, .value = @intCast(self.macros.items.len)}); try self.macros.append(macro);
             },
             else => {
-                std.debug.print("Not implemented: {}\n", .{directive});
+                std.debug.print("unexpected directive {}\n", .{directive});
             },
         }
     }
@@ -403,13 +414,72 @@ pub const Parser = struct {
             const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected macro instruction, got '{s}'", .{ins.slice});
             return self.parseError(ins, err_msg);
         }
+        var instr = MacroInstruction{ .instruction = ins.instruction.? };
 
         // Longest instructions take 3 arguments
-        // TODO:
-        //  - read all arguments
-        //  - save into macro instruction list
-        //  - save optional macro index in ParsedInstruction for better error reporting when an instruction receives a bad argument by macro parameter
-        _ = macro;
+        for (0..3) |i| {
+            var tok = self.lexer.look();
+            if (tok.type == .newline) break;
+            tok = self.lexer.lex();
+            // We do almost no parsing or checking here, that can come when actually parsing the instructions generated when calling the macro
+            switch (i) {
+                0 => {
+                    if (tok.type == .operator) {
+                        instr.arg1op = switch (tok.slice[0]) {
+                            '#' => .immediate,
+                            '$' => .macro_argument,
+                            else => .comma,
+                        };
+                        if (instr.arg1op == .comma) {
+                            const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected macro argument, got '{s}'", .{ins.slice});
+                            return self.parseError(tok, err_msg);
+                        }
+                        tok = self.lexer.lex();
+                    }
+                    instr.arg1 = tok.value;
+                },
+                1 => {
+                    if (tok.type == .operator) {
+                        instr.arg2op = switch (tok.slice[0]) {
+                            '#' => .immediate,
+                            '$' => .macro_argument,
+                            else => .comma,
+                        };
+                        if (instr.arg2op == .comma) {
+                            const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected macro argument, got '{s}'", .{ins.slice});
+                            return self.parseError(tok, err_msg);
+                        }
+                        tok = self.lexer.lex();
+                    }
+                    instr.arg2 = tok.value;
+                },
+                2 => {
+                    if (tok.type == .operator) {
+                        instr.arg3op = switch (tok.slice[0]) {
+                            '#' => .immediate,
+                            '$' => .macro_argument,
+                            else => .comma,
+                        };
+                        if (instr.arg3op == .comma) {
+                            const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected macro argument, got '{s}'", .{ins.slice});
+                            return self.parseError(tok, err_msg);
+                        }
+                        tok = self.lexer.lex();
+                    }
+                    instr.arg3 = tok.value;
+                },
+                else => unreachable,
+            }
+        }
+
+        // Now we should only get a newline
+        const tok = self.lexer.lex();
+        if (tok.type != .newline) {
+            const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expexted newline, got '{s}'", .{ins.slice});
+            return self.parseError(tok, err_msg);
+        }
+
+        try macro.instructions.append(instr);
     }
 
     /// Assemble Instruction with arguments into a ParsedInstruction, or return null and report if there was an error.

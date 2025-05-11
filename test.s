@@ -14,10 +14,11 @@ blt #0
 .last
 bllt #0
 
-@macro do_something #0
+@macro do_something 0
 nops
 @endm
 
-@macro add 2
+@macro adder 2
 add $1 $2
+ident nop
 @endm

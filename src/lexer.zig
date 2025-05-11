@@ -6,6 +6,8 @@ const std = @import("std");
 
 const mvzr = @import("mvzr");
 
+const Parser = @import("parser.zig").Parser;
+
 const TokenType = enum {
     /// Assembler directives
     directive,
@@ -174,6 +176,9 @@ pub const Lexer = struct {
     input: []u8,
     regexes: std.AutoHashMap(TokenType, mvzr.Regex) = undefined,
 
+    /// Used for identifier lookup
+    parser: *Parser,
+
     pub fn init(self: *Lexer, allocator: std.mem.Allocator) !void {
         self.regexes = std.AutoHashMap(TokenType, mvzr.Regex).init(allocator);
 
@@ -254,6 +259,10 @@ pub const Lexer = struct {
                 if (return_token.directive == null) {
                     return_token.type = .syntax_error;
                 }
+            },
+            .identifier => {
+                const symbol = self.parser.symbols.get(return_token.slice);
+                if (symbol != null) return_token.value = symbol.?.value;
             },
             else => {},
         }

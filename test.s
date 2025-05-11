@@ -19,6 +19,5 @@ nops
 @endm
 
 @macro adder 2
-add $1 $2
-ident nop
+add $1 $2 test
 @endm

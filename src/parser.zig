@@ -73,7 +73,7 @@ pub const Parser = struct {
     pub fn init(self: *Parser, allocator: std.mem.Allocator) !void {
         self.allocator = allocator;
 
-        self.lexer = Lexer{ .input = self.input };
+        self.lexer = Lexer{ .input = self.input, .parser = self };
         try self.lexer.init(allocator);
 
         self.lines = std.ArrayList([]const u8).init(allocator);
@@ -162,7 +162,7 @@ pub const Parser = struct {
 
         std.debug.print("\nMacros:\n", .{});
         for (self.macros.items) |m| {
-            std.debug.print("{} {any}\n", .{m.arg_count, m.instructions.items});
+            std.debug.print("{} {any}\n", .{ m.arg_count, m.instructions.items });
         }
         std.debug.print("\n", .{});
 
@@ -182,11 +182,17 @@ pub const Parser = struct {
             self.err_count += 1;
             try stderr.print("Error on line {d}: {s}\n", .{ self.curr_line, msg });
 
-            // If currently in a macro, skip the rest of it until getting to the end of it
-            var tok = self.lexer.lex();
-            while (tok.type != .directive or tok.directive.? != .macro_end) {
-                if (tok.type == .newline) try self.parseNewline();
-                tok = self.lexer.lex();
+            // If currently in a macro, skip the rest of it
+            if (self.in_macro) {
+                var tok = self.lexer.lex();
+                while (tok.type != .directive or tok.directive.? != .macro_end) {
+                    if (tok.type == .newline) try self.parseNewline();
+                    if (tok.type == .eof) return;
+                    tok = self.lexer.lex();
+                }
+
+                self.in_macro = false;
+                return;
             }
         } else if (last.type == .value_error) {
             self.err_count += 1;
@@ -367,9 +373,10 @@ pub const Parser = struct {
 
                 const newline = self.lexer.lex();
                 if (newline.type != .newline) {
-                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected newline, got '{s}'", .{literal.slice});
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected end of line, got '{s}'", .{literal.slice});
                     return self.parseError(newline, err_msg);
                 }
+                try self.parseNewline();
 
                 var macro: Macro = .{ .instructions = std.ArrayList(MacroInstruction).init(self.allocator), .arg_count = @intCast(literal.value) };
 
@@ -377,6 +384,13 @@ pub const Parser = struct {
                 var tok = self.lexer.look();
                 while (tok.type == .instruction) : (tok = self.lexer.look()) {
                     try self.parseMacroInstruction(&macro);
+                }
+
+                // If some instruction ran into an error, it would call parseError, which panic discards the
+                // rest of the macro. Check for that condition
+                if (!self.in_macro) {
+                    macro.instructions.deinit();
+                    return;
                 }
 
                 // Broke out of loop because lexer gave something not allowed inside macro definition, check if this is a @endm
@@ -390,7 +404,8 @@ pub const Parser = struct {
                 _ = self.lexer.lex();
 
                 self.in_macro = false;
-                try self.symbols.put(ident.slice, Symbol{.type = .macro, .value = @intCast(self.macros.items.len)}); try self.macros.append(macro);
+                try self.symbols.put(ident.slice, Symbol{ .type = .macro, .value = @intCast(self.macros.items.len) });
+                try self.macros.append(macro);
             },
             else => {
                 std.debug.print("unexpected directive {}\n", .{directive});
@@ -436,6 +451,12 @@ pub const Parser = struct {
                         }
                         tok = self.lexer.lex();
                     }
+                    if (tok.type == .identifier and self.symbols.get(tok.slice) != null) {
+                        if (self.symbols.get(tok.slice).?.type == .macro) {
+                            const err_msg = try std.fmt.bufPrint(&self.err_buffer, "invalid argument, got '{s}' which is a macro", .{tok.slice});
+                            return self.parseError(tok, err_msg);
+                        }
+                    }
                     instr.arg1 = tok.value;
                 },
                 1 => {
@@ -450,6 +471,12 @@ pub const Parser = struct {
                             return self.parseError(tok, err_msg);
                         }
                         tok = self.lexer.lex();
+                    }
+                    if (tok.type == .identifier and self.symbols.get(tok.slice) != null) {
+                        if (self.symbols.get(tok.slice).?.type == .macro) {
+                            const err_msg = try std.fmt.bufPrint(&self.err_buffer, "invalid argument, got '{s}' which is a macro", .{tok.slice});
+                            return self.parseError(tok, err_msg);
+                        }
                     }
                     instr.arg2 = tok.value;
                 },
@@ -466,6 +493,12 @@ pub const Parser = struct {
                         }
                         tok = self.lexer.lex();
                     }
+                    if (tok.type == .identifier and self.symbols.get(tok.slice) != null) {
+                        if (self.symbols.get(tok.slice).?.type == .macro) {
+                            const err_msg = try std.fmt.bufPrint(&self.err_buffer, "invalid argument, got '{s}' which is a macro", .{tok.slice});
+                            return self.parseError(tok, err_msg);
+                        }
+                    }
                     instr.arg3 = tok.value;
                 },
                 else => unreachable,
@@ -475,9 +508,10 @@ pub const Parser = struct {
         // Now we should only get a newline
         const tok = self.lexer.lex();
         if (tok.type != .newline) {
-            const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expexted newline, got '{s}'", .{ins.slice});
+            const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expexted end of line, got '{s}'", .{ins.slice});
             return self.parseError(tok, err_msg);
         }
+        try self.parseNewline();
 
         try macro.instructions.append(instr);
     }

@@ -5,19 +5,22 @@
 add x1 #0b1011
 adds x4 #0o2700
 .label addle x4 #0x2000
-ldria x4 #002000
+ldria x4 x4
 ; comment
 strib x1 x4   ; inline comment
 bl #0
-blt #0
+blt #1
 
 .last
-bllt #0
+bllt #2
 
-@macro do_something 0
+@macro do_something 1
 nops
+b $0
 @endm
 
 @macro adder 2
-add $1 $2 test
+add $0 $1 test
 @endm
+
+do_something last

@@ -129,7 +129,7 @@ pub fn main() !u8 {
     try p.init(alloc);
     defer p.deinit();
 
-    try p.parse();
+    const error_count = try p.parse();
 
-    return 0;
+    return if (error_count > 0) 1 else 0;
 }

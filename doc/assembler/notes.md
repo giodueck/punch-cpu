@@ -74,17 +74,14 @@ Replace macro calls with the list of instructions they store, replacing the para
     - [x] `@var ident literal`
     - [x] `@array ident literal '[' list_of_literals ']'`
     - [x] `.label ident`
-    - [x] instructions: count and report syntax errors. Macros counted with instructions inside macro
-    - [ ] `@macro ident literal`
-    - [ ] (in macro) `instruction macro_arglist`
-    - [ ] (in macro) `ident macro_arglist`
-    - [ ] `@endm`
-    - [ ] Const resolution in first pass, after they have been defined, even inside directives
+    - [x] `@macro ident literal`
+    - [x] (in macro) `instruction macro_arglist`
+    - [ ] (in macro) `ident macro_arglist` (skipped for now, is it necessary?)
+    - [x] `@endm`
+    - [x] Const resolution in first pass, after they have been defined, even inside directives
+    - [x] instructions: parse arguments, replace idents with values as immediate arguments
+    - [x] replace macros
 - [ ] Second pass
-    - [ ] replace macros
-- [ ] Third pass
-    - [ ] instructions: parse arguments, replace idents with values as immediate arguments
-- [ ] Fourth pass
     - [ ] machine code gen
-- [ ] Fifth pass
+- [ ] Third pass
     - [ ] BP gen

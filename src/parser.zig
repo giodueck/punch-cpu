@@ -53,6 +53,67 @@ const Macro = struct {
     instructions: std.ArrayList(MacroInstruction) = undefined,
 };
 
+const RType = packed struct(i32) {
+    cond: u4,
+    flag: bool,
+    format: u2 = 0,
+    opcode: u5,
+    d: u4,
+    r: u4,
+    s: u4,
+    e: u8,
+};
+
+const IType = packed struct(i32) {
+    cond: u4,
+    flag: bool,
+    format: u2 = 1,
+    opcode: u5,
+    d: u4,
+    r: u4,
+    i: i12,
+};
+
+const AType = packed struct(i32) {
+    cond: u4,
+    flag: bool,
+    format: u2 = 2,
+    opcode: u5,
+    d: u4,
+    a: i16,
+};
+
+const LType = packed struct(i32) {
+    cond: u4,
+    flag: bool,
+    format: u2 = 3,
+    opcode: u5,
+    l: i20,
+};
+
+fn opcodeOf(ins: Instruction) u5 {
+    return switch (ins.operation) {
+        .i_nop, .i_add => 0,
+        .i_sub => 1,
+        .i_sbn => 2,
+        .i_mul => 3,
+        .i_div => 4,
+        .i_mod => 5,
+        .i_exp => 6,
+        .i_shl => 7,
+        .i_shr => 8,
+        .i_and => 9,
+        .i_orr => 10,
+        .i_xor => 11,
+        .i_ldr => 16,
+        .i_str => 17,
+        .i_ldh => 18,
+        .i_b => 28,
+        .i_setf => 29,
+        .i_brk, .i_wait => 30,
+    };
+}
+
 pub const Parser = struct {
     allocator: std.mem.Allocator = undefined,
     lexer: Lexer = undefined,
@@ -73,6 +134,8 @@ pub const Parser = struct {
     program: std.ArrayList(ParsedInstruction) = undefined,
     data: std.ArrayList(i32) = undefined,
 
+    machine_code: []i32 = undefined,
+
     pub fn init(self: *Parser, allocator: std.mem.Allocator) !void {
         self.allocator = allocator;
 
@@ -89,9 +152,12 @@ pub const Parser = struct {
         self.macros = std.ArrayList(Macro).init(allocator);
         self.program = std.ArrayList(ParsedInstruction).init(allocator);
         self.data = std.ArrayList(i32).init(allocator);
+
+        self.machine_code = try allocator.alloc(i32, 0x1000);
     }
 
     pub fn deinit(self: *Parser) void {
+        self.allocator.free(self.machine_code);
         self.data.deinit();
         self.program.deinit();
         for (self.macros.items) |m| {
@@ -103,12 +169,11 @@ pub const Parser = struct {
         self.lexer.deinit();
     }
 
-    // TODO separate into stages, as in notes.md
     pub fn parse(self: *Parser) !u32 {
         var token = self.lexer.lex();
         var expect_eol = false;
 
-        // First pass
+        // First pass: parsing
 
         // Take one token and run a parser rule based on that token, except when the last rule expected an end of line
         while (token.type != .eof) : (token = self.lexer.lex()) {
@@ -141,7 +206,7 @@ pub const Parser = struct {
                     .operator => {
                         switch (token.slice[0]) {
                             '.' => {
-                                try self.parseLabelFirst();
+                                try self.parseLabel();
                             },
                             else => {
                                 try stderr.print("Operator not implemented: {s}\n", .{token.slice});
@@ -166,27 +231,80 @@ pub const Parser = struct {
             }
         }
 
-        var iter = self.symbols.iterator();
-        std.debug.print("\n\nSymbols:\n", .{});
-        while (iter.next()) |s| {
-            std.debug.print("{s}: {}\n", .{ s.key_ptr.*, s.value_ptr });
+        if (self.err_count > 0) return self.err_count;
+
+        // Second pass: machine code generation
+        // TODO test output in Factorio
+
+        for (0..self.machine_code.len) |i| {
+            self.machine_code[i] = 0;
+        }
+        for (self.program.items, 0..) |ins, i| {
+            if (!ins.immediate) {
+                self.machine_code[i] = @bitCast(RType{
+                    .cond = @intFromEnum(ins.instruction.condition),
+                    .flag = ins.instruction.flag,
+                    .opcode = opcodeOf(ins.instruction),
+                    .d = ins.destination,
+                    .r = ins.op1,
+                    .s = @intCast(ins.op2),
+                    .e = ins.e_bits,
+                });
+            } else if (ins.op1 != 0) {
+                self.machine_code[i] = @bitCast(IType{
+                    .cond = @intFromEnum(ins.instruction.condition),
+                    .flag = ins.instruction.flag,
+                    .opcode = opcodeOf(ins.instruction),
+                    .d = ins.destination,
+                    .r = ins.op1,
+                    // TODO check bit width in first pass
+                    .i = @intCast(ins.op2),
+                });
+            } else if (ins.destination != 0) {
+                self.machine_code[i] = @bitCast(AType{
+                    .cond = @intFromEnum(ins.instruction.condition),
+                    .flag = ins.instruction.flag,
+                    .opcode = opcodeOf(ins.instruction),
+                    .d = ins.destination,
+                    .a = @intCast(ins.op2),
+                });
+            } else {
+                self.machine_code[i] = @bitCast(LType{
+                    .cond = @intFromEnum(ins.instruction.condition),
+                    .flag = ins.instruction.flag,
+                    .opcode = opcodeOf(ins.instruction),
+                    .l = @intCast(ins.op2),
+                });
+            }
         }
 
-        std.debug.print("\nData:\n", .{});
-        for (self.data.items) |item| {
-            std.debug.print("{d}, ", .{item});
-        }
-        std.debug.print("\n", .{});
+        // var iter = self.symbols.iterator();
+        // std.debug.print("\n\nSymbols:\n", .{});
+        // while (iter.next()) |s| {
+        //     std.debug.print("{s}: {}\n", .{ s.key_ptr.*, s.value_ptr });
+        // }
+        //
+        // std.debug.print("\nData:\n", .{});
+        // for (self.data.items) |item| {
+        //     std.debug.print("{d}, ", .{item});
+        // }
+        // std.debug.print("\n", .{});
+        //
+        // std.debug.print("\nMacros:\n", .{});
+        // for (self.macros.items) |m| {
+        //     std.debug.print("{} {any}\n", .{ m.arg_count, m.instructions.items });
+        // }
+        // std.debug.print("\n", .{});
+        //
+        // std.debug.print("\nProgram:\n", .{});
+        // for (self.program.items) |ins| {
+        //     std.debug.print("{}\n", .{ins});
+        // }
+        // std.debug.print("\n", .{});
 
-        std.debug.print("\nMacros:\n", .{});
-        for (self.macros.items) |m| {
-            std.debug.print("{} {any}\n", .{ m.arg_count, m.instructions.items });
-        }
-        std.debug.print("\n", .{});
-
-        std.debug.print("\nProgram:\n", .{});
-        for (self.program.items) |ins| {
-            std.debug.print("{}\n", .{ins});
+        std.debug.print("\nMachine code:\n", .{});
+        for (0..self.program.items.len) |i| {
+            std.debug.print("{x:0>8} \n", .{@as(u32, @bitCast(self.machine_code[i]))});
         }
         std.debug.print("\n", .{});
 
@@ -916,7 +1034,7 @@ pub const Parser = struct {
         }
     }
 
-    fn parseLabelFirst(self: *Parser) !void {
+    fn parseLabel(self: *Parser) !void {
         const ident = self.lexer.lex();
         if (ident.type != .identifier) {
             const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected identifier, got '{s}'", .{if (ident.slice[0] != '\n') ident.slice else "\\n"});

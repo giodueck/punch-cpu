@@ -15,7 +15,7 @@ blt #1
 bllt #2
 
 @macro do_something 1
-nops
+nop
 b $0
 @endm
 

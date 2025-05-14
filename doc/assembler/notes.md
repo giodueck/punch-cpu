@@ -80,6 +80,7 @@ Replace macro calls with the list of instructions they store, replacing the para
     - [x] `@endm`
     - [x] Const resolution in first pass, after they have been defined, even inside directives
     - [x] instructions: parse arguments, replace idents with values as immediate arguments
+    - [ ] branch: calculate offset if immediate
     - [x] replace macros
 - [ ] Second pass
     - [ ] machine code gen

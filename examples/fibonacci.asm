@@ -1,4 +1,3 @@
-
 @macro mov 2
 add $0 x0 $1
 @endm
@@ -7,7 +6,6 @@ add $0 x0 $1
 
     mov x1 #1
     mov x2 #1
-    nop
 
 .loop
     adds x1 x2

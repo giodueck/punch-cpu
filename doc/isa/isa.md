@@ -42,9 +42,16 @@ The first revision of the Punch CPU implements all the base instructions and fea
 5. Writeback
 
 > **Note** The third and fifth stages can run simultaneously without data hazards, but the registers written to by an instruction will take one cycle in the writeback stage before they can be read from, i.e. a register written to by an instruction in the execute stage and read from in the read stage is subject to a data hazard.
-> This does not apply to the branch instruction, but it does if branching via an ALU instruction or a memory load.
+> This does not apply to the branch instruction with immediate offset, but it does if branching via an ALU instruction or a memory load.
 
 It features a small memory range: 4K words of program ROM and 8K words of RAM, where a word is a 32-bit value.
+
+#### Implementation: Second revision
+An instruction which sets a register which is immediately needed as an operand by the following instruction caused a data hazard in the first revision. Since it is only a 1 cycle delay between when an instruction executes and when the result is written to the destination, this value could also be forwarded to the execution stage without much complex wiring.
+
+As such, if a register is needed as either operand in an operation, and its value is updated by the previous instruction, the value produced by this previous instruction replaces the value read in the read registers stage.
+
+This is the only unhandled hazard of the first revision, as control hazards are handled by flushing the pipeline if the branch is taken.
 
 ## Instruction encoding
 All instructions are one 32-bit word long and have one of several similar types of formats. These were designed to be simple to decode and immediates embedded in them were placed to be easily sign extended, as all immediates are signed two's complement.

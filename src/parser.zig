@@ -131,6 +131,7 @@ pub const Parser = struct {
 
     symbols: std.StringHashMap(Symbol) = undefined,
     macros: std.ArrayList(Macro) = undefined,
+    instr_count: usize = 0,
     program: std.ArrayList(ParsedInstruction) = undefined,
     data: std.ArrayList(i32) = undefined,
 
@@ -192,12 +193,9 @@ pub const Parser = struct {
                         expect_eol = true;
                     },
                     .instruction => {
-                        const ins = try self.parseInstruction(token.instruction.?);
-                        if (ins == null) {
-                            // ignore, errors should already be reported
-                            continue;
-                        }
-                        try self.program.append(ins.?);
+                        self.instr_count += 1;
+
+                        self.skipLine();
                         expect_eol = true;
                     },
                     .newline => {
@@ -214,14 +212,18 @@ pub const Parser = struct {
                         }
                     },
                     .identifier => {
-                        // This can only be a macro
-                        const instrs = try self.resolveMacro(token);
-                        if (instrs != null) {
-                            defer instrs.?.deinit();
-                            for (instrs.?.items) |ins| {
-                                try self.program.append(ins);
-                            }
-                        } // else ignore, errors should already be reported
+                        // This can only be a macro, parse properly in second pass
+                        const macro_opt = self.symbols.get(token.slice);
+                        if (macro_opt == null or macro_opt.?.type != .macro) {
+                            const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' is not a defined macro", .{token.slice});
+                            try self.parseError(token, err_msg);
+                        }
+
+                        const macro = self.macros.items[@intCast(macro_opt.?.value)];
+                        self.instr_count += macro.instructions.items.len;
+
+                        self.skipLine();
+                        expect_eol = true;
                     },
                     else => {
                         std.debug.print("{any}: {s}\n", .{ token.type, token.slice });
@@ -233,7 +235,77 @@ pub const Parser = struct {
 
         if (self.err_count > 0) return self.err_count;
 
-        // Second pass: machine code generation
+        // Second pass: instruction parsing
+
+        // Reset lexer to beginning, ignore everything but instructions
+        self.lexer.input = self.input;
+        self.curr_line = 1;
+        self.curr_macro = null;
+        self.in_macro = false;
+        token = self.lexer.lex();
+        while (token.type != .eof) : (token = self.lexer.lex()) {
+            if (expect_eol) {
+                if (token.type != .newline) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected end of line, got '{s}'", .{token.slice});
+                    try self.parseError(token, err_msg);
+                } else {
+                    try self.parseNewline();
+                }
+                expect_eol = false;
+            } else {
+                switch (token.type) {
+                    .directive => {
+                        if (token.directive != .macro_start) {
+                            self.skipLine();
+                        } else {
+                            // Skip macro definitions too
+                            while (!(token.type == .directive and token.directive.? == .macro_end)) : (token = self.lexer.look()) {
+                                _ = self.lexer.lex();
+                                if (token.type == .newline) try self.parseNewline();
+                            }
+                            // If a macro definition was improper, should already have bailed after first pass, so we assume we don't need to check for errors
+                            _ = self.lexer.lex();
+                        }
+                        expect_eol = true;
+                    },
+                    .instruction => {
+                        const ins = try self.parseInstruction(token.instruction.?);
+                        if (ins == null) {
+                            // ignore, errors should already be reported in parseInstruction
+                            continue;
+                        }
+                        try self.program.append(ins.?);
+                        expect_eol = true;
+                    },
+                    .newline => {
+                        try self.parseNewline();
+                    },
+                    .operator => {
+                        switch (token.slice[0]) {
+                            '.' => {
+                                // This is an identifier, or we would not have gotten here
+                                token = self.lexer.lex();
+                            },
+                            else => {},
+                        }
+                    },
+                    .identifier => {
+                        // This can only be a macro
+                        const instrs = try self.resolveMacro(token);
+                        if (instrs != null) {
+                            defer instrs.?.deinit();
+                            for (instrs.?.items) |ins| {
+                                try self.program.append(ins);
+                            }
+                        } // else ignore, errors should already be reported
+                        expect_eol = true;
+                    },
+                    else => {},
+                }
+            }
+        }
+
+        // Third pass: machine code generation
         // TODO test output in Factorio
 
         for (0..self.machine_code.len) |i| {
@@ -257,7 +329,7 @@ pub const Parser = struct {
                     .opcode = opcodeOf(ins.instruction),
                     .d = ins.destination,
                     .r = ins.op1,
-                    // TODO check bit width in first pass
+                    // TODO check bit width in second pass
                     .i = @intCast(ins.op2),
                 });
             } else if (ins.destination != 0) {
@@ -304,11 +376,19 @@ pub const Parser = struct {
 
         std.debug.print("\nMachine code:\n", .{});
         for (0..self.program.items.len) |i| {
-            std.debug.print("{x:0>8} \n", .{@as(u32, @bitCast(self.machine_code[i]))});
+            std.debug.print("0x{x:0>8} \n", .{@as(u32, @bitCast(self.machine_code[i]))});
         }
         std.debug.print("\n", .{});
 
         return self.err_count;
+    }
+
+    fn skipLine(self: *Parser) void {
+        var token = self.lexer.look();
+        // Consume everything up until end of line
+        while (token.type != .newline and token.type != .eof) : (token = self.lexer.look()) {
+            _ = self.lexer.lex();
+        }
     }
 
     /// Panic: consume all tokens until end of line to make parsing the rest of the file possible
@@ -598,6 +678,8 @@ pub const Parser = struct {
                     try args_array.append(tok);
                 },
                 .identifier => {
+                    // consume token
+                    _ = self.lexer.lex();
                     if (self.symbols.get(tok.slice)) |sym| {
                         if (sym.type == .macro) {
                             const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected constant, variable, array or label, but got macro '{s}'", .{tok.slice});
@@ -612,6 +694,8 @@ pub const Parser = struct {
                     }
                 },
                 else => {
+                    // consume token
+                    _ = self.lexer.lex();
                     const err_msg = try std.fmt.bufPrint(&self.err_buffer, "expected register, immediate or idendifier, got '{s}'", .{tok.slice});
                     try self.parseError(tok, err_msg);
                     return null;
@@ -906,14 +990,14 @@ pub const Parser = struct {
                     return null;
                 }
 
+                if (arg1.?.type != .register) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 1 must be a register", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(dummy_token, err_msg);
+                    return null;
+                }
+
                 if (arg3 != null) {
                     // alu xd xr xs/imm
-                    if (arg1.?.type != .register) {
-                        const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 1 must be a register", .{@tagName(instruction.operation)[2..]});
-                        try self.parseError(dummy_token, err_msg);
-                        return null;
-                    }
-
                     if (arg2.?.type != .register) {
                         const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 2 must be a register when passing 3 arguments", .{@tagName(instruction.operation)[2..]});
                         try self.parseError(dummy_token, err_msg);
@@ -923,13 +1007,8 @@ pub const Parser = struct {
                     return ParsedInstruction{ .instruction = instruction, .destination = @truncate(@as(u32, @intCast(arg1.?.value & 0xF))), .op1 = @truncate(@as(u32, @intCast(arg2.?.value & 0xF))), .op2 = arg3.?.value, .immediate = (arg3.?.type != .register), .e_bits = 0 };
                 } else {
                     // alu xr xs/imm
-                    if (arg1.?.type != .register) {
-                        const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 1 must be a register", .{@tagName(instruction.operation)[2..]});
-                        try self.parseError(dummy_token, err_msg);
-                        return null;
-                    }
 
-                    return ParsedInstruction{ .instruction = instruction, .destination = @truncate(@as(u32, @intCast(arg1.?.value & 0xF))), .op1 = @truncate(@as(u32, @intCast(arg2.?.value & 0xF))), .op2 = arg2.?.value, .immediate = (arg2.?.type != .register), .e_bits = 0 };
+                    return ParsedInstruction{ .instruction = instruction, .destination = @truncate(@as(u32, @intCast(arg1.?.value & 0xF))), .op1 = @truncate(@as(u32, @intCast(arg1.?.value & 0xF))), .op2 = arg2.?.value, .immediate = (arg2.?.type != .register), .e_bits = 0 };
                 }
             },
             .i_ldr, .i_str => {
@@ -1024,12 +1103,24 @@ pub const Parser = struct {
             .i_b => {
                 // b xs/imm
                 if (arg1 == null or arg2 != null) {
-                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 2: xs/imm", .{@tagName(instruction.operation)[2..]});
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 1 argument: xs/imm", .{@tagName(instruction.operation)[2..]});
                     try self.parseError(dummy_token, err_msg);
                     return null;
                 }
 
-                return ParsedInstruction{ .instruction = instruction, .destination = 0, .op1 = 0, .op2 = arg1.?.value, .immediate = (arg1.?.type != .register) };
+                // `b dest` means add an offset to PC such that, accounting for the pipeline offset of 3 steps, the result is dest (if dest is an immediate)
+                // If dest is instead a register, assume the user wants to jump to that address and use an add with 0 instead. This means a branch and link with a register destination is not possible
+
+                if (arg1.?.type != .register) {
+                    // Here PC means the address of the current instruction, not the actual value of x15
+                    // PC + 3 + offset = imm
+                    // offset = imm - PC - 3
+                    const offset: i32 = @intCast(arg1.?.value - @as(i32, @intCast(self.program.items.len)) - 3);
+
+                    return ParsedInstruction{ .instruction = instruction, .destination = 0, .op1 = 0, .op2 = offset, .immediate = true };
+                } else {
+                    return ParsedInstruction{ .instruction = Instruction{ .operation = .i_add, .flag = false, .condition = instruction.condition, .suffix = null }, .destination = 15, .op1 = 0, .op2 = arg2.?.value, .immediate = false };
+                }
             },
         }
     }
@@ -1048,6 +1139,6 @@ pub const Parser = struct {
         }
 
         // Value is the address after the current instruction
-        try self.symbols.put(ident.slice, Symbol{ .type = .label, .value = @intCast(self.program.items.len) });
+        try self.symbols.put(ident.slice, Symbol{ .type = .label, .value = @intCast(self.instr_count) });
     }
 };

@@ -201,9 +201,10 @@ The branch instruction immediately fetches the next desired instruction in the n
 
 Mnemonic | Opcode | Operands | Description
 -------- | ------ | -------- | -----------
-`b<l>`   |  11100 | `xs/imm` | Adds operand 2 as an offset to PC. If `l` is appended, also stores the address of the following instruction in LR.
+`b<l>`   |  11100 | `imm`    | Adds operand 2 as an offset to PC. If `l` is appended, also stores the address of the following instruction in LR.
+`b`      |  11100 | `xs`     | Sets PC to contents of operand 2. Takes one cycle longer to flush pipeline compared to branches to immediates.
 
-Although using a register as the destination address is possible, it may be impractical because it is only an offset, which is calculated by an assembler if it is an immediate. In these cases, an ALU instruction may be better suited, like when branching to LR.
+Although using a register's content as the offset is possible, it is be impractical because it is an offset from the current instruction, which is calculated by an assembler if it is an immediate. In these cases, an ALU instruction may be better suited, like when branching to LR. For this reason, **a branch to a register is compiled as an add with the zero register and PC as the destination, which is 1 cycle slower than a branch to immediate**.
 
 > **Note** The PC is is ahead of the current instruction by 3 at any point in time due to it pointing to the instruction currently in the fetch stage. The offset should account for this.
 

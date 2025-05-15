@@ -79,10 +79,11 @@ Replace macro calls with the list of instructions they store, replacing the para
     - [ ] (in macro) `ident macro_arglist` (skipped for now, is it necessary?)
     - [x] `@endm`
     - [x] Const resolution in first pass, after they have been defined, even inside directives
+- [x] Second pass
     - [x] instructions: parse arguments, replace idents with values as immediate arguments
-    - [ ] branch: calculate offset if immediate
+    - [x] branch: calculate offset if immediate
     - [x] replace macros
-- [ ] Second pass
-    - [ ] machine code gen
-- [ ] Third pass
+- [x] Third pass
+    - [x] machine code gen
+- [ ] Fourth pass
     - [ ] BP gen

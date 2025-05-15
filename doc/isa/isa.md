@@ -125,7 +125,7 @@ Mnemonic | Opcode | Description
 `orr`    | 01010  | Logical OR between two operands
 `xor`    | 01011  | Logical XOR between two operands
 
-All instructions take two operands, but may be encoded as R-type, I-type or A-type (it may be useful to use just the second operand). All instructions store the result in the destination register.
+All instructions take two operands, but may be encoded as R-type, I-type or A-type (it may be useful to use just the second operand, to encode in A-type set operand 1 to x0). All instructions store the result in the destination register.
 
 > **Note** The use of L-type instructions with these opcodes is reserved for future extensions.
 
@@ -158,7 +158,7 @@ Mnemonic | Opcode | Operands    | Description
 -------- | ------ | ----------- | -----------
 `ldr<s>` |  10000 | `xd xs/imm` | Load a word from memory at address pointed to by the second operand.
 `str`    |  10001 | `xd xs/imm` | Store a word from the source register (xd) to memory at address pointed to by the second operand.
-`ldh<s>` |  10010 | `xd imm`    | Load a 16-bit immediate into the upper 16 bits of the destination, clearing the lower bits. Can be used to construct 32-bit immediates with 2 instructions.
+`ldh<s>` |  10010 | `xd imm`    | Load a 16-bit immediate into the upper 16 bits of the destination, clearing the lower bits. Can be used to construct 32-bit immediates with 3 instructions.
 
 > **Note** The first operand stays unused in all of these instructions. Encodings with the first operand different from 0 are reserved for future extensions.
 

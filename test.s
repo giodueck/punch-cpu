@@ -4,7 +4,7 @@
 
 add x1 #0b1011
 adds x4 #0o2700
-.label addle x4 #0x2000
+.label addle x4 #0x200
 ldria x4 x4
 ; comment
 strib x1 x4   ; inline comment

@@ -36,6 +36,7 @@ const ParsedInstruction = struct {
     op2: i32,
     immediate: bool,
     e_bits: u8 = 0,
+    line: usize = 0,
 };
 
 const MacroInstruction = struct {
@@ -233,6 +234,7 @@ pub const Parser = struct {
             }
         }
 
+        // Shortcircuit: stop if any errors were reported
         if (self.err_count > 0) return self.err_count;
 
         // Second pass: instruction parsing
@@ -269,11 +271,12 @@ pub const Parser = struct {
                         expect_eol = true;
                     },
                     .instruction => {
-                        const ins = try self.parseInstruction(token.instruction.?);
+                        var ins = try self.parseInstruction(token.instruction.?);
                         if (ins == null) {
                             // ignore, errors should already be reported in parseInstruction
                             continue;
                         }
+                        ins.?.line = self.curr_line;
                         try self.program.append(ins.?);
                         expect_eol = true;
                     },
@@ -295,7 +298,9 @@ pub const Parser = struct {
                         if (instrs != null) {
                             defer instrs.?.deinit();
                             for (instrs.?.items) |ins| {
-                                try self.program.append(ins);
+                                var insvar = ins;
+                                insvar.line = self.curr_line;
+                                try self.program.append(insvar);
                             }
                         } // else ignore, errors should already be reported
                         expect_eol = true;
@@ -304,6 +309,9 @@ pub const Parser = struct {
                 }
             }
         }
+
+        // Shortcircuit: stop if any errors were reported
+        if (self.err_count > 0) return self.err_count;
 
         // Third pass: machine code generation
         // TODO test output in Factorio
@@ -323,32 +331,58 @@ pub const Parser = struct {
                     .e = ins.e_bits,
                 });
             } else if (ins.op1 != 0) {
+                // if shifting out right the last 12 bits results in non-zero, the immediate won't fit
+                const shifted: i32 = ins.op2 >> 12;
+                if (shifted != 0 and shifted != -1) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "immediate or identifier value does not fit into a 12-bit signed integer", .{});
+                    self.curr_line = ins.line;
+                    try self.parseError(Token{ .type = .eof, .slice = &.{} }, err_msg);
+                    continue;
+                }
                 self.machine_code[i] = @bitCast(IType{
                     .cond = @intFromEnum(ins.instruction.condition),
                     .flag = ins.instruction.flag,
                     .opcode = opcodeOf(ins.instruction),
                     .d = ins.destination,
                     .r = ins.op1,
-                    // TODO check bit width in second pass
-                    .i = @intCast(ins.op2),
+                    .i = @truncate(@as(i32, @bitCast(ins.op2)))
                 });
             } else if (ins.destination != 0) {
+                // if shifting out right the last 16 bits results in non-zero, the immediate won't fit
+                const shifted: i32 = ins.op2 >> 16;
+                if (shifted != 0 and shifted != -1) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "immediate or identifier value does not fit into a 16-bit signed integer", .{});
+                    self.curr_line = ins.line;
+                    try self.parseError(Token{ .type = .eof, .slice = &.{} }, err_msg);
+                    continue;
+                }
                 self.machine_code[i] = @bitCast(AType{
                     .cond = @intFromEnum(ins.instruction.condition),
                     .flag = ins.instruction.flag,
                     .opcode = opcodeOf(ins.instruction),
                     .d = ins.destination,
-                    .a = @intCast(ins.op2),
+                    .a = @truncate(@as(i32, @bitCast(ins.op2)))
                 });
             } else {
+                // if shifting out right the last 20 bits results in non-zero, the immediate won't fit
+                const shifted: i32 = ins.op2 >> 20;
+                if (shifted != 0 and shifted != -1) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "immediate or identifier value does not fit into a 20-bit signed integer{s}", .{if (ins.instruction.operation == .i_b) "\n  hint: branch to a register instead" else ""});
+                    self.curr_line = ins.line;
+                    try self.parseError(Token{ .type = .eof, .slice = &.{} }, err_msg);
+                    continue;
+                }
                 self.machine_code[i] = @bitCast(LType{
                     .cond = @intFromEnum(ins.instruction.condition),
                     .flag = ins.instruction.flag,
                     .opcode = opcodeOf(ins.instruction),
-                    .l = @intCast(ins.op2),
+                    .l = @truncate(@as(i32, @bitCast(ins.op2)))
                 });
             }
         }
+
+        // Shortcircuit: stop if any errors were reported
+        if (self.err_count > 0) return self.err_count;
 
         // var iter = self.symbols.iterator();
         // std.debug.print("\n\nSymbols:\n", .{});
@@ -400,7 +434,7 @@ pub const Parser = struct {
             self.err_count += 1;
             try stderr.print("Error on line {d}: {s}\n", .{ self.curr_line, msg });
             if (self.curr_macro != null) {
-                try stderr.print("  in macro '{s}'\n", .{self.curr_macro.?});
+                try stderr.print("  hint: in macro '{s}'\n", .{self.curr_macro.?});
             }
 
             // If currently in a macro, skip the rest of it

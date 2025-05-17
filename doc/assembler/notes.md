@@ -89,3 +89,9 @@ Replace macro calls with the list of instructions they store, replacing the para
     - [x] BP gen
         - [x] Program
         - [x] Data
+
+Additional:
+- Second class instructions: implement translations in the assembler
+    This enables using flags and condition codes, which is not supported for macros. E.g. `movseq`
+- Save program output into files
+- PPU

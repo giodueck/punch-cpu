@@ -35,12 +35,46 @@ pub fn build(b: *std.Build) void {
     });
 
     // Zig-clap dependency
-    const clap = b.dependency("clap", .{});
+    const clap = b.dependency("clap", .{
+        .target = target,
+        .optimize = optimize,
+    });
     exe.root_module.addImport("clap", clap.module("clap"));
 
     // MVZR dependency
-    const mvzr = b.dependency("mvzr", .{});
+    const mvzr = b.dependency("mvzr", .{
+        .target = target,
+        .optimize = optimize,
+    });
     exe.root_module.addImport("mvzr", mvzr.module("mvzr"));
+
+    // zlib dependency
+    const zlib = b.dependency("zlib", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.linkLibrary(zlib.artifact("z"));
+
+    // Blueprint template files
+    exe.root_module.addAnonymousImport("program_rom", .{
+        .root_source_file = b.path("bp/program-rom-template.txt"),
+    });
+    exe.root_module.addAnonymousImport("data_rom", .{
+        .root_source_file = b.path("bp/data-rom-template.txt"),
+    });
+
+    // C helper functions for replacing placeholder values for new values in blueprint strings.
+    // Taken from https://github.com/giodueck/FC-tools
+    exe.root_module.addCSourceFiles(std.Build.Module.AddCSourceFilesOptions{
+        .root = b.path("src/c"),
+        .files = &.{
+            "bp_creator.c",
+            "helpers.c",
+            "rom_bp_strings.c",
+        },
+    });
+    exe.addIncludePath(b.path("src/c"));
+    exe.linkLibC();
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

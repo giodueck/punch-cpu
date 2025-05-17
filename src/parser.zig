@@ -6,6 +6,7 @@ const Token = lexer.Token;
 const Directive = lexer.Directive;
 const Instruction = lexer.Instruction;
 const Operator = lexer.Operator;
+const templates = @import("templates.zig");
 
 const stderr = std.io.getStdErr().writer();
 
@@ -126,9 +127,13 @@ fn opcodeOf(ins: Instruction) u5 {
 }
 
 pub const Parser = struct {
+    /// The input is the only piece of initialization data we need: the assembly program contents
+    input: []u8,
+
     allocator: std.mem.Allocator = undefined,
     lexer: Lexer = undefined,
-    input: []u8,
+    output_program_bp: ?[*:0]u8 = null,
+    output_data_bp: ?[*:0]u8 = null,
 
     lines: std.ArrayList([]const u8) = undefined,
     curr_line: usize = 1,
@@ -169,6 +174,12 @@ pub const Parser = struct {
     }
 
     pub fn deinit(self: *Parser) void {
+        if (self.output_program_bp) |string| {
+            templates.freeRom(string);
+        }
+        if (self.output_data_bp) |string| {
+            templates.freeRom(string);
+        }
         self.allocator.free(self.machine_code);
         self.data.deinit();
         self.program.deinit();
@@ -334,7 +345,6 @@ pub const Parser = struct {
         if (self.err_count > 0) return self.err_count;
 
         // Third pass: machine code generation
-        // TODO test output in Factorio
 
         for (0..self.machine_code.len) |i| {
             self.machine_code[i] = 0;
@@ -386,6 +396,31 @@ pub const Parser = struct {
         // Shortcircuit: stop if any errors were reported
         if (self.err_count > 0) return self.err_count;
 
+        // Final pass: output program and data blueprints
+
+        if (self.output_program_bp != null) {
+            templates.freeRom(self.output_program_bp);
+        }
+        if (self.output_data_bp != null) {
+            templates.freeRom(self.output_data_bp);
+        }
+
+        self.output_program_bp = try templates.genProgramRom(self.allocator, self.machine_code);
+        if (self.output_program_bp) |bp| {
+            std.debug.print("{s}\n\n", .{bp});
+        } else {
+            try stderr.print("Could not compile into blueprint string\n", .{});
+            return 1;
+        }
+
+        self.output_data_bp = try templates.genDataRom(self.allocator, self.data.items);
+        if (self.output_data_bp) |bp| {
+            std.debug.print("{s}\n\n", .{bp});
+        } else {
+            try stderr.print("Could not compile into blueprint string\n", .{});
+            return 1;
+        }
+
         // var iter = self.symbols.iterator();
         // std.debug.print("\n\nSymbols:\n", .{});
         // while (iter.next()) |s| {
@@ -410,11 +445,11 @@ pub const Parser = struct {
         // }
         // std.debug.print("\n", .{});
 
-        std.debug.print("\nMachine code:\n", .{});
-        for (0..self.program.items.len) |i| {
-            std.debug.print("0x{x:0>8} \n", .{@as(u32, @bitCast(self.machine_code[i]))});
-        }
-        std.debug.print("\n", .{});
+        // std.debug.print("\nMachine code:\n", .{});
+        // for (0..self.program.items.len) |i| {
+        //     std.debug.print("0x{x:0>8} \n", .{@as(u32, @bitCast(self.machine_code[i]))});
+        // }
+        // std.debug.print("\n", .{});
 
         return self.err_count;
     }

@@ -44,12 +44,16 @@
             .url = "https://github.com/mnemnion/mvzr/archive/refs/tags/v0.3.4.tar.gz",
             .hash = "mvzr-0.3.4-ZSOky2RnAQDtFSuVhbh2fP1s4PwRvTQ-DDw2lixvvA7T",
         },
+        .zlib = .{
+            .url = "https://github.com/allyourcodebase/zlib/archive/refs/tags/1.3.1.tar.gz",
+            .hash = "zlib-1.3.1-AAAAACEMAAA0qyoSrfgBb_p25ItL4yRf_TBRk-26TYMF",
+        },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
-        "lib",
+        "bp",
         "LICENSE",
         "README.md",
     },

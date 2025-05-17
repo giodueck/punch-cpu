@@ -85,7 +85,7 @@ Replace macro calls with the list of instructions they store, replacing the para
     - [x] replace macros
 - [x] Third pass
     - [x] machine code gen
-- [ ] Fourth pass
-    - [ ] BP gen
-        - [ ] Program
-        - [ ] Data
+- [x] Fourth pass
+    - [x] BP gen
+        - [x] Program
+        - [x] Data

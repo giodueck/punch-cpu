@@ -1,5 +1,5 @@
-@var x 0
-@var y 1
+@var x 123
+@var y 246
 
 ; Copy variables into RAM
 add x1 x0 _datalen

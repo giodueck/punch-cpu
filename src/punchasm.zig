@@ -131,5 +131,21 @@ pub fn main() !u8 {
 
     const error_count = try p.parse();
 
+    // if (error_count == 0) {
+    //     // output_program_name: []const u8 = "out_program.txt",
+    //     // output_data_name: []const u8 = "out_data.txt",
+    //     const prog_bp = std.fs.cwd().createFile(p.output_program_name, .{}) catch |e| {
+    //         try stderr.print("Could not create file '{s}': {s}\n", .{ p.output_program_name, @errorName(e) });
+    //         return 1;
+    //     };
+    //     defer prog_bp.close();
+    //
+    //     const data_bp = std.fs.cwd().createFile(p.output_program_name, .{}) catch |e| {
+    //         try stderr.print("Could not create file '{s}': {s}\n", .{ p.output_program_name, @errorName(e) });
+    //         return 1;
+    //     };
+    //     defer data_bp.close();
+    // }
+
     return if (error_count > 0) 1 else 0;
 }

@@ -53,6 +53,11 @@ As such, if a register is needed as either operand in an operation, and its valu
 
 This is the only unhandled hazard of the first revision, as control hazards are handled by flushing the pipeline if the branch is taken.
 
+> **Note** The third revision fixes some problems in the second, like improper writeback checking for the result to be forwarded and an exception for the store operation, which uses the destination as the operand instead.
+
+#### Implementation: Third revision
+Implement Data ROM, 4096 words of constant memory to be written by the compiler and copied to RAM to initialize variables.
+
 ## Instruction encoding
 All instructions are one 32-bit word long and have one of several similar types of formats. These were designed to be simple to decode and immediates embedded in them were placed to be easily sign extended, as all immediates are signed two's complement.
 
@@ -246,3 +251,11 @@ The addressable range is, of course, much larger than the 20K words, or 80KB use
 0x0000  | Program ROM | 4K words
         |-------------|
 ```
+
+### Programming with variables
+Memory addresses defined in assembly language using `@var` and `@array` refer to RAM addresses, but must be initialized to a value. This value, however, is stored in Data ROM. To initialize the variables in RAM, a constant `_datalen` is defined to provide the length of the Data ROM occupied by variables, which can then be used to copy data over to RAM.
+
+The constants defined by the assembler relating to the memory map are:
+- `_datastart`: 0x1000
+- `_datalen`: length of Data ROM occupied by data variables and arrays
+- `_ramstart`: 0x2000

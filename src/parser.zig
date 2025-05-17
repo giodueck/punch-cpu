@@ -9,6 +9,16 @@ const Operator = lexer.Operator;
 
 const stderr = std.io.getStdErr().writer();
 
+// Memory mappings
+const mem_offset_program: i32 = 0;
+const mem_offset_data: i32 = 0x1000;
+const mem_offset_ram: i32 = 0x2000;
+
+/// Constant defined by the compiler for the programmer to handle copying data into RAM
+const data_len_name = "_datalen";
+const data_start_name = "_datastart";
+const ram_start_name = "_ramstart";
+
 const Argument = enum {
     register,
     immediate,
@@ -177,6 +187,13 @@ pub const Parser = struct {
 
         // First pass: parsing
 
+        // Define _datalen as a constant for the length of the data section. It can only be effectively used by instructions, as it is only properly defined after the first pass
+        try self.symbols.put(data_len_name, Symbol{ .type = .constant, .value = 0 });
+
+        // Define other helper constants
+        try self.symbols.put(data_start_name, Symbol{ .type = .constant, .value = mem_offset_data });
+        try self.symbols.put(ram_start_name, Symbol{ .type = .constant, .value = mem_offset_ram });
+
         // Take one token and run a parser rule based on that token, except when the last rule expected an end of line
         while (token.type != .eof) : (token = self.lexer.lex()) {
             if (expect_eol) {
@@ -236,6 +253,9 @@ pub const Parser = struct {
 
         // Shortcircuit: stop if any errors were reported
         if (self.err_count > 0) return self.err_count;
+
+        // Modify data length constant
+        try self.symbols.put(data_len_name, Symbol{ .type = .constant, .value = @intCast(self.data.items.len) });
 
         // Second pass: instruction parsing
 
@@ -339,14 +359,7 @@ pub const Parser = struct {
                     try self.parseError(Token{ .type = .eof, .slice = &.{} }, err_msg);
                     continue;
                 }
-                self.machine_code[i] = @bitCast(IType{
-                    .cond = @intFromEnum(ins.instruction.condition),
-                    .flag = ins.instruction.flag,
-                    .opcode = opcodeOf(ins.instruction),
-                    .d = ins.destination,
-                    .r = ins.op1,
-                    .i = @truncate(@as(i32, @bitCast(ins.op2)))
-                });
+                self.machine_code[i] = @bitCast(IType{ .cond = @intFromEnum(ins.instruction.condition), .flag = ins.instruction.flag, .opcode = opcodeOf(ins.instruction), .d = ins.destination, .r = ins.op1, .i = @truncate(@as(i32, @bitCast(ins.op2))) });
             } else if (ins.destination != 0) {
                 // if shifting out right the last 16 bits results in non-zero, the immediate won't fit
                 const shifted: i32 = ins.op2 >> 16;
@@ -356,13 +369,7 @@ pub const Parser = struct {
                     try self.parseError(Token{ .type = .eof, .slice = &.{} }, err_msg);
                     continue;
                 }
-                self.machine_code[i] = @bitCast(AType{
-                    .cond = @intFromEnum(ins.instruction.condition),
-                    .flag = ins.instruction.flag,
-                    .opcode = opcodeOf(ins.instruction),
-                    .d = ins.destination,
-                    .a = @truncate(@as(i32, @bitCast(ins.op2)))
-                });
+                self.machine_code[i] = @bitCast(AType{ .cond = @intFromEnum(ins.instruction.condition), .flag = ins.instruction.flag, .opcode = opcodeOf(ins.instruction), .d = ins.destination, .a = @truncate(@as(i32, @bitCast(ins.op2))) });
             } else {
                 // if shifting out right the last 20 bits results in non-zero, the immediate won't fit
                 const shifted: i32 = ins.op2 >> 20;
@@ -372,12 +379,7 @@ pub const Parser = struct {
                     try self.parseError(Token{ .type = .eof, .slice = &.{} }, err_msg);
                     continue;
                 }
-                self.machine_code[i] = @bitCast(LType{
-                    .cond = @intFromEnum(ins.instruction.condition),
-                    .flag = ins.instruction.flag,
-                    .opcode = opcodeOf(ins.instruction),
-                    .l = @truncate(@as(i32, @bitCast(ins.op2)))
-                });
+                self.machine_code[i] = @bitCast(LType{ .cond = @intFromEnum(ins.instruction.condition), .flag = ins.instruction.flag, .opcode = opcodeOf(ins.instruction), .l = @truncate(@as(i32, @bitCast(ins.op2))) });
             }
         }
 
@@ -516,7 +518,7 @@ pub const Parser = struct {
                 // Save to data arraylist first, then point to the last element
                 const addr: i32 = @intCast(self.data.items.len);
                 try self.data.append(literal.value);
-                try self.symbols.put(ident.slice, Symbol{ .type = .variable, .value = addr });
+                try self.symbols.put(ident.slice, Symbol{ .type = .variable, .value = addr + mem_offset_ram });
             },
             // Array format: "@array" identifier literal [ list_of_literals ]
             // A list too long is an error, a list too short will be padded with 0s
@@ -596,7 +598,7 @@ pub const Parser = struct {
                 }
 
                 // Finally store symbol
-                try self.symbols.put(ident.slice, Symbol{ .type = .array, .value = addr });
+                try self.symbols.put(ident.slice, Symbol{ .type = .array, .value = addr + mem_offset_ram });
             },
             // Macro format: "@macro" ident literal
             // While in macro, should only accept intructions or macro calls
@@ -1083,8 +1085,8 @@ pub const Parser = struct {
                         e = @bitCast(@as(i8, @truncate(arg3.?.value << 1)));
                     } else {
                         e = switch (instruction.suffix.?) {
-                            .ia, .ib => @as(u8, @bitCast(@as(i8, -1))),
-                            .da, .db => @as(u8, 1),
+                            .ia, .ib => @as(u8, 1),
+                            .da, .db => @as(u8, @bitCast(@as(i8, -1))),
                         } << 1;
                     }
                     e |= switch (instruction.suffix.?) {
@@ -1153,7 +1155,7 @@ pub const Parser = struct {
 
                     return ParsedInstruction{ .instruction = instruction, .destination = 0, .op1 = 0, .op2 = offset, .immediate = true };
                 } else {
-                    return ParsedInstruction{ .instruction = Instruction{ .operation = .i_add, .flag = false, .condition = instruction.condition, .suffix = null }, .destination = 15, .op1 = 0, .op2 = arg2.?.value, .immediate = false };
+                    return ParsedInstruction{ .instruction = Instruction{ .operation = .i_add, .flag = false, .condition = instruction.condition, .suffix = null }, .destination = 15, .op1 = 0, .op2 = arg1.?.value, .immediate = false };
                 }
             },
         }

@@ -12,10 +12,10 @@ Also inspired by ARM is the conditional execution of every instruction, which ca
 
 The design is also inspired by the RISC-V RV32I ISA, which prioritizes a simple base ISA to allow for extensibility, and provides only a few instruction formats, unlike ARMv4 for example.
 
-The memory space is best constrained to 16 bits, as addresses in this range would be the most convenient to use, but larger address ranges are of course supported as well. In these cases, a similar approach to RV32I is taken where two instructions are needed to create a 32-bit immediate value for an address.
+The memory space is best constrained to 16 bits, as addresses in this range would be the most convenient to use, but larger address ranges are of course supported as well. In these cases, a similar approach to RV32I can be taken where several instructions are needed to create a 32-bit immediate value for an address.
 
 ### General specifications and features
-The base ISA contains 22 instructions and 4 instruction formats, which are independent of the instructions.
+The base ISA contains 18 instructions and 4 instruction formats, which are independent of the instructions.
 
 There is also a debugging and utility instruction in the form of a halt or wait, which stops the clock until manual action is taken or the timer specified for the wait instruction runs down.
 
@@ -159,7 +159,6 @@ Mnemonic | Operands    | Translation           | Description
 `cmp`    | `xr xs/imm` | `subs x0 xr xs/imm`   | Compare two values and update flags without storing a result
 `nop`    |             | `add x0 x0 x0`        | Do nothing. This instruction encodes as 0, so an invalid fetch or unset program memory do nothing.
 `not<s>` | `xd xr`     | `xor<s> xd xr -1`     | Logical NOT to first operand.
-`ret`    |             | `add pc x0 lr`        | Return from a subroutine branched to with branch and link.
 
 ### Load and store instructions
 

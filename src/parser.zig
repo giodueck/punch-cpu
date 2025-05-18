@@ -400,9 +400,11 @@ pub const Parser = struct {
 
         if (self.output_program_bp != null) {
             templates.freeRom(self.output_program_bp);
+            self.output_program_bp = null;
         }
         if (self.output_data_bp != null) {
             templates.freeRom(self.output_data_bp);
+            self.output_data_bp = null;
         }
 
         self.output_program_bp = try templates.genProgramRom(self.allocator, self.machine_code);
@@ -411,10 +413,12 @@ pub const Parser = struct {
             return 1;
         }
 
-        self.output_data_bp = try templates.genDataRom(self.allocator, self.data.items);
-        if (self.output_data_bp == null)  {
-            try stderr.print("Could not compile data into blueprint string\n", .{});
-            return 1;
+        if (self.data.items.len > 0) {
+            self.output_data_bp = try templates.genDataRom(self.allocator, self.data.items);
+            if (self.output_data_bp == null)  {
+                try stderr.print("Could not compile data into blueprint string\n", .{});
+                return 1;
+            }
         }
 
         // var iter = self.symbols.iterator();

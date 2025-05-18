@@ -121,7 +121,14 @@ pub fn main() !u8 {
         return 1;
     };
     defer file.close();
-    const raw_program = try file.readToEndAlloc(alloc, 0x40000);
+    const raw_program = blk: {
+        // Case insensitive
+        var content = try file.readToEndAlloc(alloc, 0x40000);
+        for (0..content.len) |i| {
+            content[i] = std.ascii.toLower(content[i]);
+        }
+        break :blk content;
+    };
     defer alloc.free(raw_program);
 
     var p = parser.Parser{ .input = raw_program };
@@ -146,19 +153,22 @@ pub fn main() !u8 {
             try stdout.print("Program:  {s}\n\n", .{p.output_program_bp.?});
         }
 
-        if (data_output) |filename| {
-            const data_bp = std.fs.cwd().createFile(filename, .{}) catch |e| {
-                try stderr.print("Could not create file '{s}': {s}\n", .{ filename, @errorName(e) });
-                return 1;
-            };
-            defer data_bp.close();
+        // If there is no data sections in the program, skip them in the output
+        if (p.output_data_bp != null) {
+            if (data_output) |filename| {
+                const data_bp = std.fs.cwd().createFile(filename, .{}) catch |e| {
+                    try stderr.print("Could not create file '{s}': {s}\n", .{ filename, @errorName(e) });
+                    return 1;
+                };
+                defer data_bp.close();
 
-            data_bp.writer().print("{s}", .{p.output_data_bp.?}) catch |e| {
-                try stderr.print("Could not write to file '{s}': {s}\n", .{ filename, @errorName(e) });
-                return 1;
-            };
-        } else {
-            try stdout.print("Data:     {s}\n\n", .{p.output_data_bp.?});
+                data_bp.writer().print("{s}", .{p.output_data_bp.?}) catch |e| {
+                    try stderr.print("Could not write to file '{s}': {s}\n", .{ filename, @errorName(e) });
+                    return 1;
+                };
+            } else {
+                try stdout.print("Data:     {s}\n\n", .{p.output_data_bp.?});
+            }
         }
     }
 

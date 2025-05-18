@@ -4,17 +4,17 @@ add $0 x0 $1
 
 ; Calculate the largest fibonacci number that fits in a 32 bit signed integer
 
-    mov x1 #1
+; Starts with 0 and 1 as the first numbers
+    mov x1 #0
     mov x2 #1
 
 .loop
-    adds x1 x2
+    adds x3 x2 x1
+    mov x1 x2
+    ; Once a fibonacci number overflows, end and keep previous number in x1
     bvs end
-
-.loop_alt
-    adds x2 x1
-    addvs x1 x0 x2
-    bvc loop
+    mov x2 x3
+    b loop
 
 .end
     brk

@@ -72,6 +72,7 @@ pub const Instruction = struct {
 pub const InstructionEnum = enum(u8) {
     i_setf,
     i_wait,
+    i_push,
     i_nop,
     i_add,
     i_sub,
@@ -85,9 +86,13 @@ pub const InstructionEnum = enum(u8) {
     i_and,
     i_orr,
     i_xor,
+    i_mov,
+    i_cmp,
+    i_not,
     i_ldr,
     i_str,
     i_ldh,
+    i_pop,
     i_brk,
     i_b,
 };
@@ -95,6 +100,7 @@ pub const InstructionEnum = enum(u8) {
 const Instructions = [_][]const u8{
     "setf",
     "wait",
+    "push",
     "nop",
     "add",
     "sub",
@@ -108,9 +114,13 @@ const Instructions = [_][]const u8{
     "and",
     "orr",
     "xor",
+    "mov",
+    "cmp",
+    "not",
     "ldr",
     "str",
     "ldh",
+    "pop",
     "brk",
     "b",
 };

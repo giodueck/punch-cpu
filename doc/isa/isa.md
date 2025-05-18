@@ -158,7 +158,7 @@ Mnemonic | Operands    | Translation           | Description
 `mov<s>` | `xd xs/imm` | `add<s> xd x0 xs/imm` | Copy a register or immediate into a register.
 `cmp`    | `xr xs/imm` | `subs x0 xr xs/imm`   | Compare two values and update flags without storing a result
 `nop`    |             | `add x0 x0 x0`        | Do nothing. This instruction encodes as 0, so an invalid fetch or unset program memory do nothing.
-`not<s>` | `xd xr`     | `xor<s> xd xr -1`     | Logical NOT to first operand.
+`not<s>` | `xd xr`     | `xor<s> xd xr #-1`     | Logical NOT to first operand.
 
 ### Load and store instructions
 

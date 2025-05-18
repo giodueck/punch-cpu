@@ -123,6 +123,8 @@ fn opcodeOf(ins: Instruction) u5 {
         .i_b => 28,
         .i_setf => 29,
         .i_brk, .i_wait => 30,
+        // The rest should be translated to one of the above
+        else => unreachable,
     };
 }
 
@@ -415,7 +417,7 @@ pub const Parser = struct {
 
         if (self.data.items.len > 0) {
             self.output_data_bp = try templates.genDataRom(self.allocator, self.data.items);
-            if (self.output_data_bp == null)  {
+            if (self.output_data_bp == null) {
                 try stderr.print("Could not compile data into blueprint string\n", .{});
                 return 1;
             }
@@ -1082,6 +1084,63 @@ pub const Parser = struct {
                     return ParsedInstruction{ .instruction = instruction, .destination = @truncate(@as(u32, @intCast(arg1.?.value & 0xF))), .op1 = @truncate(@as(u32, @intCast(arg1.?.value & 0xF))), .op2 = arg2.?.value, .immediate = (arg2.?.type != .register), .e_bits = 0 };
                 }
             },
+            .i_mov => {
+                if (arg2 == null or arg3 != null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 2 arguments: xd xs/imm", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(dummy_token, err_msg);
+                    return null;
+                }
+
+                if (arg1.?.type != .register) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 1 must be a register", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(dummy_token, err_msg);
+                    return null;
+                }
+
+                // mov xd xs/imm => add xd x0 xs/imm
+
+                return ParsedInstruction{ .instruction = Instruction{ .operation = .i_add, .condition = instruction.condition, .flag = instruction.flag, .suffix = null }, .destination = @truncate(@as(u32, @intCast(arg1.?.value & 0xF))), .op1 = 0, .op2 = arg2.?.value, .immediate = (arg2.?.type != .register), .e_bits = 0 };
+            },
+            .i_cmp => {
+                if (arg2 == null or arg3 != null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 2 arguments: xr xs/imm", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(dummy_token, err_msg);
+                    return null;
+                }
+
+                if (arg1.?.type != .register) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 1 must be a register", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(dummy_token, err_msg);
+                    return null;
+                }
+
+                if (instruction.flag) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' implicitly sets flags, 's' suffix is superfluous", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(dummy_token, err_msg);
+                    return null;
+                }
+
+                // cmp xr xs/imm => sub x0 xr xs/imm
+
+                return ParsedInstruction{ .instruction = Instruction{ .operation = .i_sub, .condition = instruction.condition, .flag = true, .suffix = null }, .destination = 0, .op1 = @truncate(@as(u32, @intCast(arg1.?.value & 0xF))), .op2 = arg2.?.value, .immediate = (arg2.?.type != .register), .e_bits = 0 };
+            },
+            .i_not => {
+                if (arg2 == null or arg3 != null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 2 arguments: xd xr", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(dummy_token, err_msg);
+                    return null;
+                }
+
+                if (arg1.?.type != .register or arg2.?.type != .register) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' arguments must be registers", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(dummy_token, err_msg);
+                    return null;
+                }
+
+                // not xd xr => xor xd xr #-1
+
+                return ParsedInstruction{ .instruction = Instruction{ .operation = .i_xor, .condition = instruction.condition, .flag = instruction.flag, .suffix = null }, .destination = @truncate(@as(u32, @intCast(arg1.?.value & 0xF))), .op1 = @truncate(@as(u32, @intCast(arg2.?.value & 0xF))), .op2 = -1, .immediate = true, .e_bits = 0 };
+            },
             .i_ldr, .i_str => {
                 // ldr/str xd xs/imm [v]
                 if (arg1 == null or arg2 == null) {
@@ -1151,7 +1210,7 @@ pub const Parser = struct {
             },
             .i_ldh => {
                 // ldh xd imm
-                if (arg1 == null or arg2 == null) {
+                if (arg2 == null or arg3 != null) {
                     const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 2 arguments: xd imm", .{@tagName(instruction.operation)[2..]});
                     try self.parseError(dummy_token, err_msg);
                     return null;
@@ -1170,6 +1229,36 @@ pub const Parser = struct {
                 }
 
                 return ParsedInstruction{ .instruction = instruction, .destination = @truncate(@as(u32, @intCast(arg1.?.value & 0xF))), .op1 = 0, .op2 = arg2.?.value & 0xFFFF, .immediate = true };
+            },
+            .i_push => {
+                if (arg1 == null or arg2 != null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 1 argument: xd", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(dummy_token, err_msg);
+                    return null;
+                }
+
+                if (arg1.?.type != .register) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 1 must be a register", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(dummy_token, err_msg);
+                    return null;
+                }
+
+                return ParsedInstruction{ .instruction = Instruction{ .operation = .i_str, .flag = false, .condition = instruction.condition, .suffix = .db }, .destination = @truncate(@as(u32, @intCast(arg1.?.value & 0xF))), .op1 = 0, .op2 = 0, .immediate = false, .e_bits = @bitCast(@as(i8, -1 << 1) | 1) };
+            },
+            .i_pop => {
+                if (arg1 == null or arg2 != null) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' takes 1 argument: xd", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(dummy_token, err_msg);
+                    return null;
+                }
+
+                if (arg1.?.type != .register) {
+                    const err_msg = try std.fmt.bufPrint(&self.err_buffer, "'{s}' argument 1 must be a register", .{@tagName(instruction.operation)[2..]});
+                    try self.parseError(dummy_token, err_msg);
+                    return null;
+                }
+
+                return ParsedInstruction{ .instruction = Instruction{ .operation = .i_ldr, .flag = instruction.flag, .condition = instruction.condition, .suffix = .ia }, .destination = @truncate(@as(u32, @intCast(arg1.?.value & 0xF))), .op1 = 0, .op2 = 0, .immediate = false, .e_bits = @bitCast(@as(i8, 1 << 1)) };
             },
             .i_b => {
                 // b xs/imm

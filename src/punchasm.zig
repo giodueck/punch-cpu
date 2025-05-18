@@ -19,11 +19,32 @@ pub fn main() !u8 {
             .id = 'h',
             .names = .{ .short = 'h', .long = "help" },
         },
+        .{
+            .id = 'p',
+            .takes_value = .one,
+            .names = .{ .short = 'p' },
+        },
+        .{
+            .id = 'd',
+            .takes_value = .one,
+            .names = .{ .short = 'd' },
+        },
         .{ .id = 'f', .takes_value = .one },
     };
 
-    const usageStr =
-        "Usage: [-h] <source file>\n";
+    const usage_str =
+        "Usage: punchasm [-h|--help]\n" ++
+        "       punchasm [-p <program output file>][-d <data output file>] <source file>\n";
+
+    const help_str = usage_str ++ "\n" ++
+        "Options:\n" ++
+        "   -h,--help   Print this help menu and exit\n\n" ++
+        "   -p <str>    Program ROM output file. If both -p and -d are omitted, output is printed to stdout.\n" ++
+        "               If -d is specified and -p is omitted, it defaults to 'prom.txt'\n\n" ++
+        "   -d <str>    Data ROM output file. If both -p and -d are omitted, output is printed to stdout.\n" ++
+        "               If -p is specified and -d is omitted, it defaults to 'drom.txt'\n" ++
+        "               If there is no data declarations, the data ROM is omitted from output alltogether,\n" ++
+        "               regardless of the usage of -d\n";
 
     var iter = try std.process.ArgIterator.initWithAllocator(alloc);
     defer iter.deinit();
@@ -43,12 +64,14 @@ pub fn main() !u8 {
 
     // Assembler variables
     var source_filename: ?[]const u8 = null;
+    var program_output: ?[]const u8 = null;
+    var data_output: ?[]const u8 = null;
 
     // Because we use a streaming parser, we have to consume each argument parsed individually.
     while (cla_parser.next() catch |err| {
         // Report useful error and exit.
         diag.report(std.io.getStdErr().writer(), err) catch {};
-        try stderr.writeAll(usageStr);
+        try stderr.writeAll(usage_str);
         return 1;
     }) |arg| {
         // arg.param will point to the parameter which matched the argument.
@@ -57,7 +80,7 @@ pub fn main() !u8 {
             // 'n' => std.debug.print("--number = {s}\n", .{arg.value.?}),
 
             'h' => {
-                try stderr.writeAll(usageStr);
+                try stderr.writeAll(help_str);
                 return 0;
             },
 
@@ -67,10 +90,16 @@ pub fn main() !u8 {
             'f' => {
                 if (source_filename != null) {
                     try stderr.print("Too many arguments\n", .{});
-                    try stderr.writeAll(usageStr);
+                    try stderr.writeAll(usage_str);
                     return 1;
                 }
                 source_filename = arg.value;
+            },
+            'p' => {
+                program_output = arg.value;
+            },
+            'd' => {
+                program_output = arg.value;
             },
             else => unreachable,
         }
@@ -78,8 +107,13 @@ pub fn main() !u8 {
 
     if (source_filename == null) {
         try stderr.writeAll("Missing source file\n");
-        try stderr.writeAll(usageStr);
+        try stderr.writeAll(usage_str);
         return 1;
+    }
+
+    if (program_output != null and data_output == null or program_output == null and data_output != null) {
+        if (program_output == null) program_output = "prom.txt";
+        if (data_output == null) data_output = "drom.txt";
     }
 
     const file = std.fs.cwd().openFile(source_filename.?, .{}) catch |e| {
@@ -90,62 +124,43 @@ pub fn main() !u8 {
     const raw_program = try file.readToEndAlloc(alloc, 0x40000);
     defer alloc.free(raw_program);
 
-    // const word: mvzr.Regex = mvzr.compile("^\\w+").?;
-    // const whitespace: mvzr.Regex = mvzr.compile("^[ \\t]+").?;
-    // const nl: mvzr.Regex = mvzr.compile("^\n+").?;
-    // const line: mvzr.Regex = mvzr.compile("^[^\n]*").?;
-
-    // var cursor: usize = 0;
-    // while (raw_program[cursor..].len != 0) {
-    //     var whitespace_match = whitespace.match(raw_program[cursor..]);
-    //     if (whitespace_match) |m| {
-    //         cursor += (m.end - m.start);
-    //     }
-    //     const newline_match = nl.match(raw_program[cursor..]);
-    //     if (newline_match) |m| {
-    //         cursor += (m.end - m.start);
-    //     }
-    //     whitespace_match = whitespace.match(raw_program[cursor..]);
-    //     if (whitespace_match) |m| {
-    //         cursor += (m.end - m.start);
-    //     }
-    //
-    //     if (raw_program[cursor..].len == 0)
-    //         break;
-    //
-    //     const match: ?mvzr.Match = word.match(raw_program[cursor..]);
-    //
-    //     if (match) |m| {
-    //         try stderr.print("{s}\n", .{m.slice});
-    //         cursor += m.slice.len;
-    //     } else {
-    //         const rest_of_line = line.match(raw_program[cursor..]);
-    //         try stderr.print("Error: Unmatched tokens: {s}\n", .{rest_of_line.?.slice});
-    //         cursor += rest_of_line.?.slice.len;
-    //     }
-    // }
-
     var p = parser.Parser{ .input = raw_program };
     try p.init(alloc);
     defer p.deinit();
 
     const error_count = try p.parse();
 
-    // if (error_count == 0) {
-    //     // output_program_name: []const u8 = "out_program.txt",
-    //     // output_data_name: []const u8 = "out_data.txt",
-    //     const prog_bp = std.fs.cwd().createFile(p.output_program_name, .{}) catch |e| {
-    //         try stderr.print("Could not create file '{s}': {s}\n", .{ p.output_program_name, @errorName(e) });
-    //         return 1;
-    //     };
-    //     defer prog_bp.close();
-    //
-    //     const data_bp = std.fs.cwd().createFile(p.output_program_name, .{}) catch |e| {
-    //         try stderr.print("Could not create file '{s}': {s}\n", .{ p.output_program_name, @errorName(e) });
-    //         return 1;
-    //     };
-    //     defer data_bp.close();
-    // }
+    if (error_count == 0) {
+        if (program_output) |filename| {
+            const prog_bp = std.fs.cwd().createFile(filename, .{}) catch |e| {
+                try stderr.print("Could not create file '{s}': {s}\n", .{ filename, @errorName(e) });
+                return 1;
+            };
+            defer prog_bp.close();
+
+            prog_bp.writer().print("{s}", .{p.output_program_bp.?}) catch |e| {
+                try stderr.print("Could not write to file '{s}': {s}\n", .{ filename, @errorName(e) });
+                return 1;
+            };
+        } else {
+            try stdout.print("Program:  {s}\n\n", .{p.output_program_bp.?});
+        }
+
+        if (data_output) |filename| {
+            const data_bp = std.fs.cwd().createFile(filename, .{}) catch |e| {
+                try stderr.print("Could not create file '{s}': {s}\n", .{ filename, @errorName(e) });
+                return 1;
+            };
+            defer data_bp.close();
+
+            data_bp.writer().print("{s}", .{p.output_data_bp.?}) catch |e| {
+                try stderr.print("Could not write to file '{s}': {s}\n", .{ filename, @errorName(e) });
+                return 1;
+            };
+        } else {
+            try stdout.print("Data:     {s}\n\n", .{p.output_data_bp.?});
+        }
+    }
 
     return if (error_count > 0) 1 else 0;
 }

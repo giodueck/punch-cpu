@@ -406,18 +406,14 @@ pub const Parser = struct {
         }
 
         self.output_program_bp = try templates.genProgramRom(self.allocator, self.machine_code);
-        if (self.output_program_bp) |bp| {
-            std.debug.print("{s}\n\n", .{bp});
-        } else {
-            try stderr.print("Could not compile into blueprint string\n", .{});
+        if (self.output_program_bp == null) {
+            try stderr.print("Could not compile program into blueprint string\n", .{});
             return 1;
         }
 
         self.output_data_bp = try templates.genDataRom(self.allocator, self.data.items);
-        if (self.output_data_bp) |bp| {
-            std.debug.print("{s}\n\n", .{bp});
-        } else {
-            try stderr.print("Could not compile into blueprint string\n", .{});
+        if (self.output_data_bp == null)  {
+            try stderr.print("Could not compile data into blueprint string\n", .{});
             return 1;
         }
 

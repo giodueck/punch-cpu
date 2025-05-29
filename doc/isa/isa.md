@@ -217,7 +217,7 @@ Mnemonic | Opcode | Operands | Description
 
 Although using a register's content as the offset is possible, it is be impractical because it is an offset from the current instruction, which is calculated by an assembler if it is an immediate. In these cases, an ALU instruction may be better suited, like when branching to LR. For this reason, **a branch to a register is compiled as an add with the zero register and PC as the destination, which is 1 cycle slower than a branch to immediate**.
 
-> **Note** The PC is is ahead of the current instruction by 3 at any point in time due to it pointing to the instruction currently in the fetch stage. The offset should account for this.
+> **Note** The PC is is ahead of the current instruction by 3 at any point in time due to it pointing to the instruction currently in the fetch stage. The offset must account for this.
 
 ### Special control instructions
 There are 2 control instructions, meant to provide ways to manipulate otherwise hidden aspects of the CPU.
@@ -237,7 +237,7 @@ The addressable range is, of course, much larger than the 20K words, or 80KB use
 
 ```
 0x4FFF  |-------------|
-0x4C00  | Unused      | 1K words
+0x4C00  | Sprite ROM  | 1K words
 0x4BFF  |-------------|
 0x4400  | VRAM        | 2K words
 0x43FF  |-------------|

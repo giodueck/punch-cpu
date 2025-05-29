@@ -91,7 +91,25 @@ Replace macro calls with the list of instructions they store, replacing the para
         - [x] Data
 
 Additional:
-- Second class instructions: implement translations in the assembler
+- [x] Second class instructions: implement translations in the assembler
     This enables using flags and condition codes, which is not supported for macros. E.g. `movseq`
-- Save program output into files
-- PPU
+- [x] Save program output into files
+- [ ] PPU
+    Hardware design pending, instructions I've thought of:
+    - set color
+    - set internal point
+    - draw pixel
+        - op1=row, op2=col
+        - or d>0 for internal point
+    - draw line
+        - op1=row, op2=col of second point, first is internal
+    - draw box
+        - same as line
+    - fill box
+        - same as line
+    - fill columns/rows between lines
+        - same as line
+        - see if this is needed first
+    - push frame/clear screen
+        - if dest>0 clear screen
+        - else push frame

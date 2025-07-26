@@ -18,6 +18,10 @@ The design makes heavy use of the textplates and nixie tubes mods, but they are 
 - General purpose memory mapped I/O ports
 - Picture processing unit and memory mapped VRAM
 
+# Executing programs
+Aside from generating blueprint strings to paste over the program and data ROMs in-game, this tool comes with
+and emulator to run programs in the terminal directly.
+
 # See also
 
 - [FC-tools](https://github.com/giodueck/FC-tools): assembler and emulator for a previous architecture, Horizon. Meant to be extensible but really isn't well organized, though it has some interesting code (so I took some into this project as well).

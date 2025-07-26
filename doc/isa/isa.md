@@ -131,8 +131,8 @@ Mnemonic | Opcode | Description
 `div`    | 00100  | Divide the first operand by the second, results in the integer quotient
 `mod`    | 00101  | Divide the first operand by the second, results in the modulo
 `exp`    | 00110  | Raise the first operand to the second
-`shl`    | 00111  | Shift the first operand left by the second. It the shift amount is 32 or more, rotate instead
-`shr`    | 01000  | Shift the first operand right, extending the sign, by the second. It the shift amount is 32 or more, rotate instead
+`shl`    | 00111  | Shift the first operand left by the second. It the shift amount is 32 or more, rotate instead. ***This is not how the game behaves by default. It uses the positive mod 32 value instead, e.g. 33 mod 32 = 1. Implementation of rotation is up to necessity in a future revision.***
+`shr`    | 01000  | Shift the first operand right, extending the sign, by the second. It the shift amount is 32 or more, rotate instead. ***This is not how the game behaves by default. It uses the positive mod 32 value instead, e.g. 33 mod 32 = 1. Implementation of rotation is up to necessity in a future revision.***
 `and`    | 01001  | Logical AND between two operands
 `orr`    | 01010  | Logical OR between two operands
 `xor`    | 01011  | Logical XOR between two operands
@@ -176,11 +176,11 @@ Mnemonic | Opcode | Operands    | Description
 ##### Address register modification
 When using an R-type ldr or str instruction, a pre/post-increment/decrement is supported. It is encoded in the `e` bitfield and is interpreted as follows:
 
-`vvvv vvvu`
+`uuuu uuuv`
 
 Which represents:
-- v: a 7-bit two's complement value, i.e. a number in the range of -64 to 63.
-- u: pre/post bit:
+- u: a 7-bit two's complement value, i.e. a number in the range of -64 to 63.
+- v: pre/post bit:
   - 0: post: add value after memory access
   - 1: pre: add value before memory access
 
@@ -213,7 +213,7 @@ The branch instruction immediately fetches the next desired instruction in the n
 Mnemonic | Opcode | Operands | Description
 -------- | ------ | -------- | -----------
 `b<l>`   |  11100 | `imm`    | Adds operand 2 as an offset to PC. If `l` is appended, also stores the address of the following instruction in LR.
-`b`      |  11100 | `xs`     | Sets PC to contents of operand 2. Takes one cycle longer to flush pipeline compared to branches to immediates.
+`b`      |        | `xs`     | Sets PC to contents of operand 2. Takes one cycle longer to flush pipeline compared to branches to immediates.
 
 Although using a register's content as the offset is possible, it is be impractical because it is an offset from the current instruction, which is calculated by an assembler if it is an immediate. In these cases, an ALU instruction may be better suited, like when branching to LR. For this reason, **a branch to a register is compiled as an add with the zero register and PC as the destination, which is 1 cycle slower than a branch to immediate**.
 

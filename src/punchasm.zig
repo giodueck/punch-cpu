@@ -3,6 +3,7 @@ const clap = @import("clap");
 const mvzr = @import("mvzr");
 
 const parser = @import("parser.zig");
+const vm = @import("vm.zig");
 
 const stderr = std.io.getStdErr().writer();
 const stdout = std.io.getStdOut().writer();
@@ -30,21 +31,28 @@ pub fn main() !u8 {
             .names = .{ .short = 'd' },
         },
         .{ .id = 'f', .takes_value = .one },
+        .{
+            .id = 'e',
+            .names = .{ .short = 'e', .long = "emulate" },
+            .takes_value = .none,
+        },
     };
 
     const usage_str =
         "Usage: punchasm [-h|--help]\n" ++
-        "       punchasm [-p <program output file>][-d <data output file>] <source file>\n";
+        "       punchasm [-p <program output file>][-d <data output file>] <source file>\n" ++
+        "       punchasm -e <source file>\n";
 
     const help_str = usage_str ++ "\n" ++
         "Options:\n" ++
-        "   -h,--help   Print this help menu and exit\n\n" ++
-        "   -p <str>    Program ROM output file. If both -p and -d are omitted, output is printed to stdout.\n" ++
-        "               If -d is specified and -p is omitted, it defaults to 'prom.txt'\n\n" ++
-        "   -d <str>    Data ROM output file. If both -p and -d are omitted, output is printed to stdout.\n" ++
-        "               If -p is specified and -d is omitted, it defaults to 'drom.txt'\n" ++
-        "               If there is no data declarations, the data ROM is omitted from output alltogether,\n" ++
-        "               regardless of the usage of -d\n";
+        "   -h,--help       Print this help menu and exit\n\n" ++
+        "   -p <str>        Program ROM output file. If both -p and -d are omitted, output is printed to stdout.\n" ++
+        "                   If -d is specified and -p is omitted, it defaults to 'prom.txt'\n\n" ++
+        "   -d <str>        Data ROM output file. If both -p and -d are omitted, output is printed to stdout.\n" ++
+        "                   If -p is specified and -d is omitted, it defaults to 'drom.txt'\n" ++
+        "                   If there is no data declarations, the data ROM is omitted from output alltogether,\n" ++
+        "                   regardless of the usage of -d\n" ++
+        "   -e,--emulate    Emulate the program instead of outputting a ROM\n";
 
     var iter = try std.process.ArgIterator.initWithAllocator(alloc);
     defer iter.deinit();
@@ -66,6 +74,7 @@ pub fn main() !u8 {
     var source_filename: ?[]const u8 = null;
     var program_output: ?[]const u8 = null;
     var data_output: ?[]const u8 = null;
+    var emulate: bool = false;
 
     // Because we use a streaming parser, we have to consume each argument parsed individually.
     while (cla_parser.next() catch |err| {
@@ -99,7 +108,10 @@ pub fn main() !u8 {
                 program_output = arg.value;
             },
             'd' => {
-                program_output = arg.value;
+                data_output = arg.value;
+            },
+            'e' => {
+                emulate = true;
             },
             else => unreachable,
         }
@@ -138,37 +150,47 @@ pub fn main() !u8 {
     const error_count = try p.parse();
 
     if (error_count == 0) {
-        if (program_output) |filename| {
-            const prog_bp = std.fs.cwd().createFile(filename, .{}) catch |e| {
-                try stderr.print("Could not create file '{s}': {s}\n", .{ filename, @errorName(e) });
-                return 1;
-            };
-            defer prog_bp.close();
-
-            prog_bp.writer().print("{s}", .{p.output_program_bp.?}) catch |e| {
-                try stderr.print("Could not write to file '{s}': {s}\n", .{ filename, @errorName(e) });
-                return 1;
-            };
-        } else {
-            try stdout.print("Program:  {s}\n\n", .{p.output_program_bp.?});
-        }
-
-        // If there is no data sections in the program, skip them in the output
-        if (p.output_data_bp != null) {
-            if (data_output) |filename| {
-                const data_bp = std.fs.cwd().createFile(filename, .{}) catch |e| {
+        if (!emulate) {
+            if (program_output) |filename| {
+                const prog_bp = std.fs.cwd().createFile(filename, .{}) catch |e| {
                     try stderr.print("Could not create file '{s}': {s}\n", .{ filename, @errorName(e) });
                     return 1;
                 };
-                defer data_bp.close();
+                defer prog_bp.close();
 
-                data_bp.writer().print("{s}", .{p.output_data_bp.?}) catch |e| {
+                prog_bp.writer().print("{s}", .{p.output_program_bp.?}) catch |e| {
                     try stderr.print("Could not write to file '{s}': {s}\n", .{ filename, @errorName(e) });
                     return 1;
                 };
             } else {
-                try stdout.print("Data:     {s}\n\n", .{p.output_data_bp.?});
+                try stdout.print("Program:  {s}\n\n", .{p.output_program_bp.?});
             }
+
+            // If there is no data sections in the program, skip them in the output
+            if (p.output_data_bp != null) {
+                if (data_output) |filename| {
+                    const data_bp = std.fs.cwd().createFile(filename, .{}) catch |e| {
+                        try stderr.print("Could not create file '{s}': {s}\n", .{ filename, @errorName(e) });
+                        return 1;
+                    };
+                    defer data_bp.close();
+
+                    data_bp.writer().print("{s}", .{p.output_data_bp.?}) catch |e| {
+                        try stderr.print("Could not write to file '{s}': {s}\n", .{ filename, @errorName(e) });
+                        return 1;
+                    };
+                } else {
+                    try stdout.print("Data:     {s}\n\n", .{p.output_data_bp.?});
+                }
+            }
+        } else {
+            var emulator = vm.VM{};
+            emulator.loadProgram(p.machine_code, p.data.items);
+            while (emulator.step()) {
+                std.debug.print("{any} {any}\n\n", .{ emulator.registers, emulator.flags });
+            }
+            std.debug.print("halted!\n", .{});
+            std.debug.print("{any} {any}\n", .{ emulator.registers, emulator.flags });
         }
     }
 
